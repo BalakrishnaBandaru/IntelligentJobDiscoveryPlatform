@@ -1,0 +1,66 @@
+# Phase 0 stack: PostgreSQL + Adminer (DB viewer) + the Spring Boot app,
+# all containerised. Brought forward from the original plan's Phase 8 so the
+# whole thing runs with `docker compose up --build` and no host installs.
+#
+# Variable values come from the .env file (copy it from .env.example first).
+
+services:
+  db:
+    image: postgres:18
+    container_name: jobdiscovery-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Store data in a sub-directory of the mount. This is the recommended
+      # pattern and keeps us independent of any per-version change to the
+      # image's default data directory.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: jobdiscovery-adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jobdiscovery-app
+    environment:
+      # Point Spring at the "db" service. Credentials are derived from the same
+      # POSTGRES_* values above so there is a single source of truth.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      # Don't start the app until Postgres reports healthy.
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
