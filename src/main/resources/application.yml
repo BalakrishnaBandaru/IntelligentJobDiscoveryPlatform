@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: job-discovery-platform
+
+  datasource:
+    # All connection values are supplied via environment variables (see
+    # .env.example). The defaults below target a Postgres running on the host's
+    # localhost, which is convenient if you ever run the app outside Docker.
+    # Under Docker Compose these are overridden to point at the "db" service.
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/jobdiscovery}
+    username: ${SPRING_DATASOURCE_USERNAME:jobdiscovery}
+    password: ${SPRING_DATASOURCE_PASSWORD:changeme}
+    hikari:
+      pool-name: job-discovery-pool
+      maximum-pool-size: 5
+
+  jpa:
+    hibernate:
+      # No Hibernate auto-DDL: the database schema is authoritative.
+      # Flyway takes over schema management in Phase 2. Right now there are no
+      # entities, so "validate" is effectively a no-op; once entities exist it
+      # will fail fast if they don't match the migrated schema.
+      ddl-auto: validate
+    # Disable open-session-in-view: keep transaction boundaries in the service
+    # layer rather than leaking a Hibernate session into the web layer.
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only expose what we actually use. "health" drives the container
+        # healthcheck and lets us confirm DB connectivity on boot.
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: true
