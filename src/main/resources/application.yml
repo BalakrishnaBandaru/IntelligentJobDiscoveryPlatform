@@ -16,11 +16,10 @@ spring:
 
   jpa:
     hibernate:
-      # No Hibernate auto-DDL: the database schema is authoritative.
-      # Flyway takes over schema management in Phase 2. Right now there are no
-      # entities, so "validate" is effectively a no-op; once entities exist it
-      # will fail fast if they don't match the migrated schema.
-      ddl-auto: validate
+      # No Hibernate auto-DDL. Flyway owns the schema (src/main/resources/db/
+      # migration). "none" means Hibernate neither creates nor validates tables —
+      # the versioned migrations are the single source of truth.
+      ddl-auto: none
     # Disable open-session-in-view: keep transaction boundaries in the service
     # layer rather than leaking a Hibernate session into the web layer.
     open-in-view: false
@@ -45,3 +44,14 @@ management:
   health:
     db:
       enabled: true
+
+# --- External job sources ---------------------------------------------------
+adzuna:
+  base-url: https://api.adzuna.com/v1/api
+  # Read from environment variables (see .env). Blank by default so the app
+  # still boots without them; the fetch endpoints then return a clear error.
+  app-id: ${ADZUNA_APP_ID:}
+  app-key: ${ADZUNA_APP_KEY:}
+  # ISO country code for the Adzuna market to search (India).
+  country: in
+  results-per-page: 20
