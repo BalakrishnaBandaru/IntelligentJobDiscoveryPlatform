@@ -1,3 +1,10 @@
 /gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+
+# Keep container-build inputs LF regardless of host OS, so a fresh clone on
+# Windows can't break the Docker build with CRLF line endings.
+Dockerfile text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
