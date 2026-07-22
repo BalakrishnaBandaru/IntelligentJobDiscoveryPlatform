@@ -61,15 +61,26 @@ public class AdzunaClient {
 
         try {
             return restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/jobs/{country}/search/{page}")
-                            .queryParam("app_id", properties.appId())
-                            .queryParam("app_key", properties.appKey())
-                            .queryParam("results_per_page", properties.resultsPerPage())
-                            .queryParam("what", what)
-                            .queryParam("where", where)
-                            .queryParam("content-type", "application/json")
-                            .build(properties.country(), page))
+                    .uri(uriBuilder -> {
+                        uriBuilder
+                                .path("/jobs/{country}/search/{page}")
+                                .queryParam("app_id", properties.appId())
+                                .queryParam("app_key", properties.appKey())
+                                .queryParam("results_per_page", properties.resultsPerPage())
+                                .queryParam("what", what)
+                                .queryParam("where", where)
+                                .queryParam("content-type", "application/json");
+                        // Recency filter + ordering, both configurable. Adding
+                        // max_days_old keeps stale/expired postings out; sort_by=date
+                        // returns newest first.
+                        if (properties.maxDaysOld() > 0) {
+                            uriBuilder.queryParam("max_days_old", properties.maxDaysOld());
+                        }
+                        if (StringUtils.hasText(properties.sortBy())) {
+                            uriBuilder.queryParam("sort_by", properties.sortBy());
+                        }
+                        return uriBuilder.build(properties.country(), page);
+                    })
                     .retrieve()
                     .body(responseType);
         } catch (RestClientResponseException e) {

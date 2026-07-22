@@ -14,5 +14,11 @@ public record AdzunaProperties(
         String appId,
         String appKey,
         @DefaultValue("in") String country,
-        @DefaultValue("20") int resultsPerPage) {
+        @DefaultValue("20") int resultsPerPage,
+        // Data-freshness filter: only fetch postings from the last N days.
+        // 0 disables the filter (fetches regardless of age).
+        @DefaultValue("30") int maxDaysOld,
+        // Result ordering: "date" (newest first), "relevance", "salary", "hybrid".
+        // Blank leaves it to Adzuna's default.
+        @DefaultValue("date") String sortBy) {
 }

@@ -51,6 +51,10 @@ services:
       # Adzuna API credentials (Phase 1) — sourced from .env, empty if unset.
       ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
       ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      # Optional tuning (defaults live in application.yml): recency window + sort.
+      # Change these in .env and recreate the app container — no rebuild needed.
+      ADZUNA_MAX_DAYS_OLD: ${ADZUNA_MAX_DAYS_OLD:-30}
+      ADZUNA_SORT_BY: ${ADZUNA_SORT_BY:-date}
     ports:
       - "8080:8080"
     depends_on:

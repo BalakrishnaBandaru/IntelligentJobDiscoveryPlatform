@@ -55,3 +55,8 @@ adzuna:
   # ISO country code for the Adzuna market to search (India).
   country: in
   results-per-page: 20
+  # Data freshness: only fetch postings from the last N days. Overridable at
+  # runtime via ADZUNA_MAX_DAYS_OLD (set to 0 to disable the filter).
+  max-days-old: ${ADZUNA_MAX_DAYS_OLD:30}
+  # Result ordering: date (newest first) | relevance | salary | hybrid.
+  sort-by: ${ADZUNA_SORT_BY:date}
