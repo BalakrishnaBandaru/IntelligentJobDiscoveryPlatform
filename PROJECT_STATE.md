@@ -10,14 +10,14 @@
 
 ## 📍 Current phase
 
-**Phase 2 — Add More Sources + Deduplication** — *code complete & verified
-working; AWAITING the user's manual checkpoint.*
+**Phase 3 — Scheduler** — *built & verified; awaiting the user's go-ahead for
+Phase 4.*
 
-Adzuna + Jooble are the active sources; content-hash de-dup confirmed (a re-run
-saves 0). **Arbeitnow was disabled by user decision** (Germany/EU feed with no
-keyword/location filtering) — code kept, `arbeitnow.enabled=false`. DB now holds
-only relevant rows (Adzuna 22, Jooble 14). Remaining: the user spot-checks a few
-Jooble apply URLs, then we start Phase 3.
+Daily automated fetch via Spring `@Scheduled` — cron `0 0 6 * * *`, zone
+`Asia/Kolkata`, all configurable (`FETCH_SCHEDULE_*` / `FETCH_KEYWORDS` /
+`FETCH_LOCATION`). Verified firing under a fast test cron: each run logs
+new-jobs-per-run with a per-source breakdown and applies dedup. Next real run is
+06:00 IST. User's stated checkpoint is to let it run unattended and check logs.
 
 ---
 
@@ -29,11 +29,13 @@ Jooble apply URLs, then we start Phase 3.
 - [x] **Phase 1 — Fetch jobs (Adzuna)** — **DONE (2026-07-22).**
   Adzuna fetch → map → persist confirmed; `max_days_old=30` + `sort_by=date`
   recency fix applied; manual click-through of applyUrls passed (real live jobs).
-- [ ] **Phase 2 — Add More Sources + Deduplication** — CODE DONE, checkpoint pending
-  Jooble (POST, key in path) active; Arbeitnow (open GET) integrated but
-  disabled; content-hash dedup; `V2` migration; `POST /api/fetch` orchestrates
-  the active sources with per-source counts. Awaiting user's Jooble spot-check.
-- [ ] Phase 3 — Scheduler
+- [x] **Phase 2 — Add More Sources + Deduplication** — **DONE (2026-07-23).**
+  Jooble active (India fallback); Arbeitnow integrated but disabled; content-hash
+  dedup confirmed (re-run saves 0); `V2` migration; `POST /api/fetch` orchestrates
+  active sources with per-source counts. User confirmed.
+- [ ] **Phase 3 — Scheduler** — built & verified; checkpoint (unattended run) pending
+  `@EnableScheduling` + daily cron (06:00 IST, configurable); logs
+  new-jobs-per-run. Demonstrated firing under a fast test cron.
 - [ ] Phase 4 — Candidate profile
 - [ ] Phase 5 — Rule engine + LLM explanations *(most important)*
 - [ ] Phase 6 — Telegram notifications
@@ -85,12 +87,14 @@ Jooble apply URLs, then we start Phase 3.
 
 ## ▶️ Immediate next step (do this when you return)
 
-1. **Await the user's Phase 2 checkpoint:** they spot-check a few Jooble apply
-   URLs (via `GET /api/jobs?source=JOOBLE` or Adminer) to confirm they're real,
-   live postings. (Arbeitnow decision already made — disabled.)
-2. Only **after the user confirms**, start **Phase 3 — Scheduler**
-   (`@EnableScheduling` + a configurable daily cron calling the fetch pipeline,
-   logging new-jobs-per-run).
+1. **Await the user's Phase 3 sign-off** — they either let the scheduler run and
+   check the 06:00 IST logs, or accept the demonstrated firing.
+2. Then start **Phase 4 — Candidate Profile**: a `CandidateProfile` entity
+   (skills[], experienceYears, preferredLocations[], preferredCompanies[],
+   expectedSalary, noticePeriod, keywords[]); the user supplies real profile data
+   via a seed script or simple POST endpoint (no resume parsing). This drives
+   Phase 5 scoring — collect the user's REAL values then (profile fields in the
+   original brief were placeholders).
 
 Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 `POST /api/adzuna/import`, `GET /api/adzuna/search` (raw), `GET /api/jobs[?source=]`,
