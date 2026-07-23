@@ -60,6 +60,9 @@ services:
       # Jooble location fallback (Indian cities return nothing from Jooble; the
       # country does). Override in .env if desired.
       JOOBLE_FALLBACK_LOCATION: ${JOOBLE_FALLBACK_LOCATION:-India}
+      # Arbeitnow is integrated but disabled by default (Germany/EU feed, no
+      # keyword/location filtering). Set true to re-activate.
+      ARBEITNOW_ENABLED: ${ARBEITNOW_ENABLED:-false}
     ports:
       - "8080:8080"
     depends_on:

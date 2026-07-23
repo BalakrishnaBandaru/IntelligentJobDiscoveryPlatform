@@ -72,5 +72,9 @@ jooble:
   fallback-location: ${JOOBLE_FALLBACK_LOCATION:India}
 
 arbeitnow:
-  # Open API, no auth. A recent-postings feed (no server-side search).
+  # DISABLED by default. Arbeitnow's open API is Germany/EU-centric and supports
+  # NO keyword/location filtering (verified: search/q/keyword/tag/location/remote
+  # are all ignored). Not useful for a Java/India search. Set ARBEITNOW_ENABLED=true
+  # to re-activate the source (e.g. for a European job search).
+  enabled: ${ARBEITNOW_ENABLED:false}
   base-url: https://www.arbeitnow.com/api
