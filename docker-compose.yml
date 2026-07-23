@@ -55,6 +55,11 @@ services:
       # Change these in .env and recreate the app container — no rebuild needed.
       ADZUNA_MAX_DAYS_OLD: ${ADZUNA_MAX_DAYS_OLD:-30}
       ADZUNA_SORT_BY: ${ADZUNA_SORT_BY:-date}
+      # Jooble (Phase 2) — key is part of the request URL path.
+      JOOBLE_API_KEY: ${JOOBLE_API_KEY:-}
+      # Jooble location fallback (Indian cities return nothing from Jooble; the
+      # country does). Override in .env if desired.
+      JOOBLE_FALLBACK_LOCATION: ${JOOBLE_FALLBACK_LOCATION:-India}
     ports:
       - "8080:8080"
     depends_on:

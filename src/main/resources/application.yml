@@ -60,3 +60,17 @@ adzuna:
   max-days-old: ${ADZUNA_MAX_DAYS_OLD:30}
   # Result ordering: date (newest first) | relevance | salary | hybrid.
   sort-by: ${ADZUNA_SORT_BY:date}
+
+jooble:
+  base-url: https://jooble.org/api
+  # Key is part of the request URL path (see .env). Blank by default so the app
+  # boots without it; the Jooble fetch then returns a clear error until it's set.
+  api-key: ${JOOBLE_API_KEY:}
+  # Jooble's location matching is coarse in some markets — Indian city names
+  # return nothing, but the country does. If a specific location yields no
+  # results, retry with this broader fallback. Override via JOOBLE_FALLBACK_LOCATION.
+  fallback-location: ${JOOBLE_FALLBACK_LOCATION:India}
+
+arbeitnow:
+  # Open API, no auth. A recent-postings feed (no server-side search).
+  base-url: https://www.arbeitnow.com/api
