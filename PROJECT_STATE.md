@@ -13,11 +13,11 @@
 **Phase 2 — Add More Sources + Deduplication** — *code complete & verified
 working; AWAITING the user's manual checkpoint.*
 
-All three sources fetch and persist through content-hash de-dup. A 3-source
-fetch stored **132 jobs** (Adzuna 20, Jooble 14, Arbeitnow 98); an immediate
-re-run saved **0** (all 140 caught as duplicates) — dedup confirmed. The user
-still needs to spot-check a few Jooble/Arbeitnow apply URLs (as done for Adzuna)
-and decide how to handle Arbeitnow's low relevance (see Known issues).
+Adzuna + Jooble are the active sources; content-hash de-dup confirmed (a re-run
+saves 0). **Arbeitnow was disabled by user decision** (Germany/EU feed with no
+keyword/location filtering) — code kept, `arbeitnow.enabled=false`. DB now holds
+only relevant rows (Adzuna 22, Jooble 14). Remaining: the user spot-checks a few
+Jooble apply URLs, then we start Phase 3.
 
 ---
 
@@ -30,9 +30,9 @@ and decide how to handle Arbeitnow's low relevance (see Known issues).
   Adzuna fetch → map → persist confirmed; `max_days_old=30` + `sort_by=date`
   recency fix applied; manual click-through of applyUrls passed (real live jobs).
 - [ ] **Phase 2 — Add More Sources + Deduplication** — CODE DONE, checkpoint pending
-  Jooble (POST, key in path) + Arbeitnow (open GET) added; content-hash dedup;
-  `V2` migration; `POST /api/fetch` orchestrates all sources with per-source
-  counts. Awaiting user's manual apply-URL spot-check + Arbeitnow decision.
+  Jooble (POST, key in path) active; Arbeitnow (open GET) integrated but
+  disabled; content-hash dedup; `V2` migration; `POST /api/fetch` orchestrates
+  the active sources with per-source counts. Awaiting user's Jooble spot-check.
 - [ ] Phase 3 — Scheduler
 - [ ] Phase 4 — Candidate profile
 - [ ] Phase 5 — Rule engine + LLM explanations *(most important)*
@@ -68,10 +68,10 @@ and decide how to handle Arbeitnow's low relevance (see Known issues).
 
 ## ⚠️ Known issues / flagged, not yet fixed
 
-- **Arbeitnow relevance is poor for this search.** Its free API is an unfiltered
-  EU/German job-board feed (no keyword/location search) — top results are German
-  tax/finance roles, not Java/India. **Decide before Phase 5:** filter Arbeitnow
-  client-side by keyword+location, or drop it as a source.
+- **Arbeitnow disabled** (resolved). Verified its API supports no keyword/location
+  filtering (only pagination + `visa_sponsorship`). Disabled via
+  `arbeitnow.enabled=false`; client code kept + documented for a possible future
+  European search. Re-enable with `ARBEITNOW_ENABLED=true`.
 - **Jooble can't geocode Indian cities** — `Bangalore`/`Bengaluru`/`Mumbai` → 0
   results; only the country `India` matches. We fall back to `India`, so Jooble
   results are India-wide (Java-relevant, e.g. Mastercard roles), not
@@ -85,11 +85,10 @@ and decide how to handle Arbeitnow's low relevance (see Known issues).
 
 ## ▶️ Immediate next step (do this when you return)
 
-1. **Await the user's Phase 2 checkpoint:** they spot-check a few Jooble +
-   Arbeitnow apply URLs (via `GET /api/jobs?source=JOOBLE` / `?source=ARBEITNOW`
-   or Adminer) to confirm they're real, live postings.
-2. **Get the user's decision on Arbeitnow** (keep + client-side filter, or drop).
-3. Only **after the user confirms**, start **Phase 3 — Scheduler**
+1. **Await the user's Phase 2 checkpoint:** they spot-check a few Jooble apply
+   URLs (via `GET /api/jobs?source=JOOBLE` or Adminer) to confirm they're real,
+   live postings. (Arbeitnow decision already made — disabled.)
+2. Only **after the user confirms**, start **Phase 3 — Scheduler**
    (`@EnableScheduling` + a configurable daily cron calling the fetch pipeline,
    logging new-jobs-per-run).
 
@@ -105,7 +104,7 @@ Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 |---|---|---|
 | **Adzuna** | ✅ working | App ID + Key in `.env`; live fetch confirmed |
 | **Jooble** | ✅ working | Key in `.env`; returns India-wide results (city fallback) |
-| **Arbeitnow** | ✅ no key needed | Open feed; low relevance for this search |
+| **Arbeitnow** | ⏸️ disabled | Integrated but off (`arbeitnow.enabled=false`); no useful filtering for this search |
 | **LLM API** (Phase 5) | ❌ not configured | Provider TBD (Spring AI vs direct REST) |
 | **Telegram bot** (Phase 6) | ❌ not created | Create via BotFather at Phase 6 |
 
