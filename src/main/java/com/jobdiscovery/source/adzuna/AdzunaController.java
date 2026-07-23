@@ -1,7 +1,7 @@
 package com.jobdiscovery.source.adzuna;
 
-import com.jobdiscovery.job.JobListing;
-import java.util.List;
+import com.jobdiscovery.job.IngestionResult;
+import com.jobdiscovery.job.JobIngestionService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,23 +11,25 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Phase 1 test endpoints for the Adzuna source.
+ * Adzuna-specific endpoints.
  *
  * <ul>
  *   <li>{@code GET  /api/adzuna/search} — raw Adzuna JSON, for inspecting the
  *       response structure. Does NOT persist anything.</li>
- *   <li>{@code POST /api/adzuna/import} — fetch + map + persist, returns what
- *       was saved.</li>
+ *   <li>{@code POST /api/adzuna/import} — fetch + map + de-dup + persist (Adzuna
+ *       only). To fetch from every source at once, use {@code POST /api/fetch}.</li>
  * </ul>
  */
 @RestController
 @RequestMapping("/api/adzuna")
 public class AdzunaController {
 
-    private final AdzunaImportService importService;
+    private final AdzunaSource adzunaSource;
+    private final JobIngestionService ingestionService;
 
-    public AdzunaController(AdzunaImportService importService) {
-        this.importService = importService;
+    public AdzunaController(AdzunaSource adzunaSource, JobIngestionService ingestionService) {
+        this.adzunaSource = adzunaSource;
+        this.ingestionService = ingestionService;
     }
 
     @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -35,19 +37,13 @@ public class AdzunaController {
             @RequestParam(defaultValue = "java developer") String what,
             @RequestParam(defaultValue = "bangalore") String where,
             @RequestParam(defaultValue = "1") int page) {
-        return ResponseEntity.ok(importService.fetchRaw(what, where, page));
+        return ResponseEntity.ok(adzunaSource.rawSearch(what, where, page));
     }
 
     @PostMapping("/import")
-    public ImportResult importJobs(
+    public IngestionResult importJobs(
             @RequestParam(defaultValue = "java developer") String what,
-            @RequestParam(defaultValue = "bangalore") String where,
-            @RequestParam(defaultValue = "1") int page) {
-        List<JobListing> saved = importService.importJobs(what, where, page);
-        return new ImportResult(what, where, saved.size(), saved);
-    }
-
-    /** Self-describing wrapper around an import result. */
-    public record ImportResult(String what, String where, int saved, List<JobListing> listings) {
+            @RequestParam(defaultValue = "bangalore") String where) {
+        return ingestionService.ingest(adzunaSource.fetchJobs(what, where));
     }
 }
