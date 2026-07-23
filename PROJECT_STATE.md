@@ -10,93 +10,92 @@
 
 ## 📍 Current phase
 
-**Phase 2 — Add More Sources + Deduplication** — *IN PROGRESS.*
+**Phase 2 — Add More Sources + Deduplication** — *code complete & verified
+working; AWAITING the user's manual checkpoint.*
 
-Design decided and the source APIs verified against live endpoints. Building the
-Jooble + Arbeitnow clients, the content-hash de-duplication, and the `V2`
-migration. **Blocked on:** the user pasting the Jooble API key into `.env`
-before the full 3-source fetch can be run and verified.
+All three sources fetch and persist through content-hash de-dup. A 3-source
+fetch stored **132 jobs** (Adzuna 20, Jooble 14, Arbeitnow 98); an immediate
+re-run saved **0** (all 140 caught as duplicates) — dedup confirmed. The user
+still needs to spot-check a few Jooble/Arbeitnow apply URLs (as done for Adzuna)
+and decide how to handle Arbeitnow's low relevance (see Known issues).
 
 ---
 
 ## ✅ Phases completed
 
 - [x] **Phase 0 — Setup / Docker scaffold** — **DONE (2026-07-22).**
-  Verified: `docker compose up --build` brings up Postgres 18 + Adminer + the
-  Spring Boot app; `GET /actuator/health` = `UP` with DB connected. Fully
-  containerised — no host JDK/Postgres install.
+  `docker compose up --build` brings up Postgres 18 + Adminer + app; health = UP
+  with DB connected. Fully containerised, no host installs.
 - [x] **Phase 1 — Fetch jobs (Adzuna)** — **DONE (2026-07-22).**
-  Verified: real Adzuna fetch → map → persist works. `max_days_old=30` +
-  `sort_by=date` recency fix applied and confirmed (all results within the last
-  few days). Manual click-through of applyUrls passed — real, live postings
-  (Oracle, Adobe, Deloitte, Kyndryl, SIXT…).
-- [ ] **Phase 2 — Add More Sources + Deduplication** — IN PROGRESS
+  Adzuna fetch → map → persist confirmed; `max_days_old=30` + `sort_by=date`
+  recency fix applied; manual click-through of applyUrls passed (real live jobs).
+- [ ] **Phase 2 — Add More Sources + Deduplication** — CODE DONE, checkpoint pending
+  Jooble (POST, key in path) + Arbeitnow (open GET) added; content-hash dedup;
+  `V2` migration; `POST /api/fetch` orchestrates all sources with per-source
+  counts. Awaiting user's manual apply-URL spot-check + Arbeitnow decision.
 - [ ] Phase 3 — Scheduler
 - [ ] Phase 4 — Candidate profile
 - [ ] Phase 5 — Rule engine + LLM explanations *(most important)*
 - [ ] Phase 6 — Telegram notifications
 - [ ] Phase 7 — Application tracking
-- [ ] Phase 8 — Demo polish (Docker/Adminer done early; Swagger, README, screenshots)
+- [ ] Phase 8 — Demo polish (Docker/Adminer already done; Swagger, README, screenshots)
 
 ---
 
 ## 🧭 Key decisions
 
-- **Everything runs in Docker** — no local JDK/Postgres install. Postgres 18 +
-  Adminer + app all containerised via Docker Compose. (Docker pulled up from the
-  plan's Phase 8 to Phase 0.)
-- **Java 21 + Spring Boot 4.1.0** (latest stable; user locked in 4.1 over the
-  original "3.x"). Gradle 9.5.1 via wrapper. Build/run entirely in containers.
-  - _SB4 gotchas already hit:_ use per-tech starters (`spring-boot-starter-flyway`,
-    not bare `flyway-core`); `RestClient.Builder` is not auto-configured — build
-    clients from the static `RestClient.builder()`.
-- **PostgreSQL, not H2** — production-like from the start.
-- **Flyway migrations + `spring.jpa.hibernate.ddl-auto=none`** — schema is
-  versioned and explicit. Introduced in Phase 1 (moved up from Phase 2).
-- **De-dup by content-hash** of normalised `(title + company + location)`, NOT a
-  unique constraint on `applyUrl` — because the same job has different URLs
-  across sources, and some Adzuna `/land/` URLs carry volatile tracking params.
-  (`V2` migration adds a `content_hash` column + unique index.)
-- **Hybrid scoring (Phase 5):** a deterministic rule engine produces the score;
-  the LLM only *explains* that score — it does NOT invent its own number.
-- **Terminology:** "Intelligent Job Discovery Platform" is an *automation
-  pipeline with AI-assisted scoring*, **NOT** an "AI agent." README/comments
-  must reflect this.
-- **Target profile:** Java backend, Bangalore / India (Adzuna `country: in`;
-  default search "java developer" / "bangalore").
+- **Everything runs in Docker** — no host JDK/Postgres. Postgres 18 + Adminer +
+  app all containerised. (Docker pulled up from Phase 8 to Phase 0.)
+- **Java 21 + Spring Boot 4.1.0** (latest stable, locked in over the original
+  "3.x"). Gradle 9.5.1 via wrapper.
+  - _SB4 gotchas hit:_ use per-tech starters (`spring-boot-starter-flyway`, not
+    `flyway-core`); `RestClient.Builder` isn't auto-configured — use static
+    `RestClient.builder()`.
+- **PostgreSQL, not H2.**
+- **Flyway migrations + `ddl-auto: none`** — schema versioned/explicit (V1 = table,
+  V2 = content_hash + unique index).
+- **De-dup by content-hash** of normalised `(title|company|location)`, NOT by
+  apply URL (URLs differ across sources / carry volatile tracking params). Unique
+  index `ux_job_listing_content_hash`. Catches re-fetches AND cross-source dupes.
+- **Per-source location handling** — Jooble uses a configurable fallback location
+  (default "India") because it can't geocode Indian cities (see Known issues).
+- **Hybrid scoring (Phase 5):** deterministic rule engine produces the score; the
+  LLM only *explains* it — never invents its own number.
+- **Terminology:** "automation pipeline with AI-assisted scoring", NOT an "AI agent".
+- **Target profile:** Java backend, Bangalore / India.
 
 ---
 
 ## ⚠️ Known issues / flagged, not yet fixed
 
-- **Messy source text** in some listings — e.g. Adzuna returned company `"Corp"`
-  and quoted titles like `"java developer"`. The mapper stores source data
-  as-is (faithful). **Needs a normalisation/cleanup pass before Phase 5 scoring**
-  so junk text doesn't skew rule matching or LLM prompts.
-- **No HTML sanitisation** of `description` (Adzuna/Arbeitnow descriptions can
-  contain HTML). Fine for now; revisit before Phase 5/6.
-- **Arbeitnow is a feed, not a search** — it ignores keywords/location and
-  returns mostly EU/remote roles. Expect lower relevance for an India Java
-  search; may need client-side filtering later.
+- **Arbeitnow relevance is poor for this search.** Its free API is an unfiltered
+  EU/German job-board feed (no keyword/location search) — top results are German
+  tax/finance roles, not Java/India. **Decide before Phase 5:** filter Arbeitnow
+  client-side by keyword+location, or drop it as a source.
+- **Jooble can't geocode Indian cities** — `Bangalore`/`Bengaluru`/`Mumbai` → 0
+  results; only the country `India` matches. We fall back to `India`, so Jooble
+  results are India-wide (Java-relevant, e.g. Mastercard roles), not
+  Bangalore-specific. Configurable via `JOOBLE_FALLBACK_LOCATION`.
+- **Messy source text** — e.g. Adzuna "Corp" company, quoted titles. Stored as-is.
+  Needs a normalisation/cleanup pass **before Phase 5 scoring**.
+- **No HTML sanitisation** of `description` (Adzuna/Arbeitnow may contain HTML).
+  Revisit before Phase 5/6.
 
 ---
 
 ## ▶️ Immediate next step (do this when you return)
 
-Finish the Phase 2 implementation:
-1. Confirm `JOOBLE_API_KEY` is set in `.env` (placeholder line already added).
-2. Build the **Jooble** client (POST, key in URL path) + **Arbeitnow** client
-   (GET, no auth) + their mappers → `JobListing` (source = `JOOBLE` /
-   `ARBEITNOW`).
-3. Add `JobIngestionService` with content-hash de-dup; add the `V2` migration
-   (`content_hash` column + unique index; clears legacy pre-dedup rows).
-4. Add `POST /api/fetch` to orchestrate all 3 sources.
-5. Rebuild, run a 3-source fetch, and report **per-source counts (fetched /
-   saved / duplicates)** + **2–3 sample listings each from Jooble and Arbeitnow**
-   for the user to eyeball and spot-check applyUrls.
+1. **Await the user's Phase 2 checkpoint:** they spot-check a few Jooble +
+   Arbeitnow apply URLs (via `GET /api/jobs?source=JOOBLE` / `?source=ARBEITNOW`
+   or Adminer) to confirm they're real, live postings.
+2. **Get the user's decision on Arbeitnow** (keep + client-side filter, or drop).
+3. Only **after the user confirms**, start **Phase 3 — Scheduler**
+   (`@EnableScheduling` + a configurable daily cron calling the fetch pipeline,
+   logging new-jobs-per-run).
 
-Then **PAUSE for the Phase 2 checkpoint** — the user will manually spot-check a
-few Jooble/Arbeitnow applyUrls (same as Adzuna) before we start Phase 3.
+Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
+`POST /api/adzuna/import`, `GET /api/adzuna/search` (raw), `GET /api/jobs[?source=]`,
+`GET /api/jobs/count`.
 
 ---
 
@@ -105,10 +104,10 @@ few Jooble/Arbeitnow applyUrls (same as Adzuna) before we start Phase 3.
 | Service | Status | Notes |
 |---|---|---|
 | **Adzuna** | ✅ working | App ID + Key in `.env`; live fetch confirmed |
-| **Jooble** | ⏳ pending | Placeholder line added to `.env`; **awaiting the user's key value** (needed to verify Phase 2) |
-| **Arbeitnow** | ✅ no key needed | Open API; response structure verified |
-| **LLM API** (Phase 5) | ❌ not configured | Provider TBD (Spring AI vs direct REST) at Phase 5 |
-| **Telegram bot** (Phase 6) | ❌ not created | User will create via BotFather when we reach Phase 6 |
+| **Jooble** | ✅ working | Key in `.env`; returns India-wide results (city fallback) |
+| **Arbeitnow** | ✅ no key needed | Open feed; low relevance for this search |
+| **LLM API** (Phase 5) | ❌ not configured | Provider TBD (Spring AI vs direct REST) |
+| **Telegram bot** (Phase 6) | ❌ not created | Create via BotFather at Phase 6 |
 
 ---
 _Secrets live only in `.env` (git-ignored). This file records **status only**,
