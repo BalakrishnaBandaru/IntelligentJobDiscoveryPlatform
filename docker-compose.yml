@@ -63,6 +63,12 @@ services:
       # Arbeitnow is integrated but disabled by default (Germany/EU feed, no
       # keyword/location filtering). Set true to re-activate.
       ARBEITNOW_ENABLED: ${ARBEITNOW_ENABLED:-false}
+      # Scheduler (Phase 3) — daily automated fetch. Tune via .env.
+      FETCH_SCHEDULE_ENABLED: "${FETCH_SCHEDULE_ENABLED:-true}"
+      FETCH_SCHEDULE_CRON: "${FETCH_SCHEDULE_CRON:-0 0 6 * * *}"
+      FETCH_SCHEDULE_ZONE: "${FETCH_SCHEDULE_ZONE:-Asia/Kolkata}"
+      FETCH_KEYWORDS: "${FETCH_KEYWORDS:-java developer}"
+      FETCH_LOCATION: "${FETCH_LOCATION:-bangalore}"
     ports:
       - "8080:8080"
     depends_on:
