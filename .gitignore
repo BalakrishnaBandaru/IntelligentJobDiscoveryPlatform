@@ -48,3 +48,6 @@ out/
 ### OS ###
 .DS_Store
 Thumbs.db
+
+### Claude Code (personal, per-machine settings) ###
+.claude/settings.local.json
