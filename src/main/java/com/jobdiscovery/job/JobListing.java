@@ -52,6 +52,13 @@ public class JobListing {
     @Column(name = "fetched_at", nullable = false)
     private Instant fetchedAt;
 
+    /**
+     * Deterministic SHA-256 hash of the normalised (title|company|location),
+     * used to de-duplicate listings. Set by JobIngestionService before persist.
+     */
+    @Column(name = "content_hash", nullable = false, length = 64)
+    private String contentHash;
+
     protected JobListing() {
         // Required by JPA.
     }
@@ -139,5 +146,13 @@ public class JobListing {
 
     public void setFetchedAt(Instant fetchedAt) {
         this.fetchedAt = fetchedAt;
+    }
+
+    public String getContentHash() {
+        return contentHash;
+    }
+
+    public void setContentHash(String contentHash) {
+        this.contentHash = contentHash;
     }
 }
