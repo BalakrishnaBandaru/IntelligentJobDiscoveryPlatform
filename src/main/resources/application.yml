@@ -91,3 +91,28 @@ fetch:
     # What the scheduled run searches for.
     keywords: ${FETCH_KEYWORDS:java developer}
     location: ${FETCH_LOCATION:bangalore}
+
+# --- Scoring rule engine (Phase 5) -----------------------------------------
+# Relative weights for the deterministic rule engine. The score divides earned
+# points by the weight of the dimensions that ACTUALLY APPLIED, so a profile
+# that leaves (say) preferredCompanies empty is not marked down for it — that
+# dimension simply drops out. Expressed out of 100 for readability.
+#
+# No LLM is involved in producing the number: Phase 5's LLM layer only explains
+# the score these weights produce.
+scoring:
+  weights:
+    # Skill overlap between the profile and the posting text.
+    skills: ${SCORING_WEIGHT_SKILLS:35}
+    # How well the posting's level fits the candidate's years. Weighted heavily
+    # because a "java developer" search returns a wide spread of seniorities and
+    # a 10-year candidate should not be shown 2-5 year roles.
+    seniority: ${SCORING_WEIGHT_SENIORITY:25}
+    # Posting location against the profile's preferred locations.
+    location: ${SCORING_WEIGHT_LOCATION:20}
+    # Profile keywords beyond the hard skills list.
+    keywords: ${SCORING_WEIGHT_KEYWORDS:10}
+    # Bonus when the employer is one the candidate named.
+    preferred-company: ${SCORING_WEIGHT_PREFERRED_COMPANY:5}
+    # Freshness of the posting (skipped when the source reports no date).
+    recency: ${SCORING_WEIGHT_RECENCY:5}

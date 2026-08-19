@@ -79,8 +79,9 @@ public class CandidateProfile {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    protected CandidateProfile() {
-        // Required by JPA.
+    public CandidateProfile() {
+        // Required by JPA, and the only constructor — the service builds a
+        // profile with CandidateProfile::new and then applies the request.
     }
 
     public Long getId() {
