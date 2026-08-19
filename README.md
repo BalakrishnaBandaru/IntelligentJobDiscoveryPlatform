@@ -33,7 +33,8 @@ the only thing a human looks at is a short, ranked, explained shortlist.
 | 2 | More sources (Jooble, Arbeitnow) + dedupe + Flyway | ✅ Done |
 | 3 | Daily scheduler | ✅ Done |
 | 4 | Candidate profile | ✅ Done |
-| 5 | Rule engine + LLM explanations | ⏳ Next |
+| 5a | Rule engine (deterministic scoring) | ✅ Done |
+| 5b | LLM match explanations | ⏳ Next |
 | 6 | Telegram notifications | ⬜ |
 | 7 | Application tracking | ⬜ |
 | 8 | Demo polish (Swagger, README, screenshots) | ⬜ |
@@ -129,6 +130,70 @@ curl -X POST http://localhost:8080/api/profile \
 [`sample-profile.json`](sample-profile.json) is a placeholder example. Keep your
 real profile in `my-profile.json`, which is git-ignored so personal details
 (salary expectation, notice period) never enter the repository.
+
+## Ranked matches (Phase 5a)
+
+Every stored listing is scored against the candidate profile by a
+**deterministic rule engine**. The score is produced by code — the LLM layer in
+Phase 5b will only put the result into words, and can neither produce nor adjust
+the number. That split is what keeps the ranking auditable and reproducible.
+
+| Method | Path | Behaviour |
+|---|---|---|
+| `GET` | `/api/matches?limit=20&minScore=0&source=` | Ranked shortlist, highest score first; `404` if no profile is set |
+
+Six dimensions contribute, with weights configurable under `scoring.weights`
+in [`application.yml`](src/main/resources/application.yml):
+
+| Dimension | Weight | What it measures |
+|---|---:|---|
+| `skills` | 35 | Profile skills the posting names; a skill in the **title** counts for more than one buried in the body |
+| `seniority` | 25 | Years the posting asks for vs. the candidate's, falling back to the level implied by the title |
+| `location` | 20 | Posting location vs. preferred locations, with city aliases and remote/hybrid handling |
+| `keywords` | 10 | Profile keywords beyond the hard skills list |
+| `preferredCompany` | 5 | Bonus when the employer is one the candidate named |
+| `recency` | 5 | How recently the posting went up |
+
+Two design decisions worth calling out:
+
+- **Matching is token-based, not substring-based.** A `contains("java")` check
+  matches "JavaScript" and would score a front-end role as a Java match. Skills
+  are compared as token sequences, so phrases match as phrases and `Java` never
+  matches `JavaScript`.
+- **A dimension with nothing to judge drops out** rather than scoring zero. If
+  the profile names no preferred companies, that weight leaves the divisor
+  instead of capping every job at 95.
+
+Each match returns its full breakdown — per-dimension score, matched skills,
+missing skills, the seniority read off the title, and any experience range found
+in the text. Those fields are the evidence the Phase 5b LLM will be given to
+explain, rather than being asked to reason from the raw posting.
+
+```bash
+curl "http://localhost:8080/api/matches?limit=5"
+```
+
+## Testing
+
+Unit tests cover the rule engine (scoring, text normalisation, seniority and
+experience parsing). They need no database and no running stack — but they do
+need a JDK, so with the Docker-everything setup they run inside the build stage
+of the image rather than on the host:
+
+```bash
+docker build --target build -t jobdiscovery-build .
+docker run --rm jobdiscovery-build ./gradlew --no-daemon test
+```
+
+For an end-to-end check against a running stack — health, migrations, the fetch
+and its de-duplication, the profile lifecycle, and the ranked shortlist:
+
+```powershell
+.\scripts\smoke-test.ps1            # add -SkipFetch to spare your API quota
+```
+
+The smoke test backs up the candidate profile before its destructive checks and
+restores it afterwards.
 
 ## Limitations (read this)
 

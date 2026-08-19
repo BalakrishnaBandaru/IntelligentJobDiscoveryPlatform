@@ -4,15 +4,16 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-07-27._
+> _Last updated: 2026-08-19._
 
 ---
 
 ## 📍 Current phase
 
-**Phase 4 — Candidate profile — DONE (2026-07-27).** Verified end-to-end against
-the running stack. Next up: **Phase 5 — Rule engine + LLM explanations**, the
-most important phase.
+**Phase 5a — Deterministic rule engine — BUILT (2026-08-19), NOT YET RUN.**
+Written but not compiled or executed: Docker Desktop was down for the whole
+session, so nothing here has been through a build. Next up: **verify 5a against
+a running stack**, then **Phase 5b — LLM match explanations**.
 
 ---
 
@@ -34,7 +35,11 @@ most important phase.
   new-jobs-per-run with a per-source breakdown and applies dedup. Verified firing
   under a fast test cron, and confirmed still registered on the 2026-07-27 boot.
 - [x] **Phase 4 — Candidate profile** — **DONE (2026-07-27).** See below.
-- [ ] Phase 5 — Rule engine + LLM explanations *(most important)*
+      Committed 2026-08-19 (the code had sat uncommitted since 07-25).
+- [x] **Phase 5a — Deterministic rule engine** — **BUILT 2026-08-19, unverified.**
+      `GET /api/matches` ranks stored listings against the profile across six
+      weighted dimensions. See below.
+- [ ] Phase 5b — LLM match explanations *(next; provider undecided)*
 - [ ] Phase 6 — Telegram notifications
 - [ ] Phase 7 — Application tracking
 - [ ] Phase 8 — Demo polish (Docker/Adminer already done; Swagger, README, screenshots)
@@ -61,6 +66,42 @@ committed. Verified on 2026-07-27 against a fresh container rebuild:
 **Resolved risk:** four `EAGER` `@ElementCollection` bags on one entity did *not*
 trigger `MultipleBagFetchException` — Hibernate 6 loads them via separate
 selects, and `GET` works cleanly with `open-in-view=false`. No change needed.
+
+
+### Phase 5a — rule engine (2026-08-19)
+
+New package `com.jobdiscovery.scoring`, plus `GET /api/matches?limit&minScore&source`
+and a `scoring.weights.*` block in `application.yml`.
+
+| Dimension | Weight | Notes |
+|---|---:|---|
+| skills | 35 | Token-based; a title hit adds +0.15 |
+| seniority | 25 | Stated years beat the title-implied level |
+| location | 20 | City aliases + remote/hybrid |
+| keywords | 10 | Profile keywords beyond skills |
+| preferredCompany | 5 | Bonus only |
+| recency | 5 | Decays over 60 days |
+
+Design points worth remembering:
+
+- **Token matching, not substring.** `contains("java")` matches "JavaScript";
+  the engine compares token sequences instead, so it cannot. Plural-tolerant
+  ("REST APIs" ↔ "REST API") and alternative-aware ("JPA/Hibernate").
+- **Inapplicable dimensions drop out of the divisor.** A profile with no
+  preferred companies is not marked down for it — otherwise every job would cap
+  at 95. This is why the score divides by *applicable* weight, not total weight.
+- **Over-qualification is penalised**, which is the fix for the seniority
+  mismatch flagged below: a 10-year candidate against a "2-4 years" posting
+  scores 0.1 on seniority, not 1.0.
+- **Scoring is in-memory and on-demand**, with no stored scores. At a few hundred
+  rows that is the right trade — re-tuning a weight re-scores everything for
+  free with nothing to invalidate. Revisit if the table grows a lot.
+- `CandidateProfile`'s no-arg constructor went from `protected` to `public` so
+  the scoring tests can build one.
+
+**First automated tests in the repo** (`src/test/java/com/jobdiscovery/scoring/`):
+`TextNormalizerTest`, `SeniorityLevelTest`, `ExperienceRequirementTest`,
+`JobScoringServiceTest` — all pure unit tests, no Spring context.
 
 ---
 
@@ -103,10 +144,18 @@ selects, and `GET` works cleanly with `open-in-view=false`. No change needed.
 
 ## ⚠️ Known issues / flagged, not yet fixed
 
-- **Seniority mismatch (new, affects Phase 5).** The candidate has **10 years**
-  of experience, but the scheduler fetches on `FETCH_KEYWORDS="java developer"`,
-  which surfaces many 2–5 year roles. Phase 5 scoring should weight seniority,
-  and the fetch keywords likely need widening (senior / lead / staff).
+- **Seniority mismatch (partly addressed 2026-08-19).** The candidate has **10
+  years** of experience, but the scheduler fetches on
+  `FETCH_KEYWORDS="java developer"`, which surfaces many 2–5 year roles. The
+  Phase 5a engine now penalises over-qualification heavily, so those roles rank
+  low — but they are still being *fetched*. Widening `FETCH_KEYWORDS`
+  (senior / lead / staff) is still open.
+- **No salary in `JobListing` — salary is NOT scored.** The original Phase 5 plan
+  listed "salary when present" as a dimension, but the entity has no salary
+  column: Adzuna returns `salary_min`/`salary_max` and the mapper drops them.
+  Adding it means a `V4` migration plus changes to all three source mappers, so
+  it was left out of 5a rather than done silently. `expectedSalary` is therefore
+  collected on the profile but unused.
 - **Arbeitnow disabled** (resolved). Verified its API supports no keyword/location
   filtering (only pagination + `visa_sponsorship`). Disabled via
   `arbeitnow.enabled=false`; client code kept + documented for a possible future
@@ -116,12 +165,15 @@ selects, and `GET` works cleanly with `open-in-view=false`. No change needed.
   results are India-wide (Java-relevant, e.g. Mastercard roles), not
   Bangalore-specific. Configurable via `JOOBLE_FALLBACK_LOCATION`.
 - **Messy source text** — e.g. Adzuna "Corp" company, quoted titles. Stored as-is.
-  Needs a normalisation/cleanup pass **before Phase 5 scoring**.
+  The scoring engine normalises text *at match time* (`TextNormalizer`), which
+  covers ranking, but the stored rows are still raw — so a digest or dashboard
+  will show the messy strings.
 - **No HTML sanitisation** of `description` (Adzuna/Arbeitnow may contain HTML).
-  Revisit before Phase 5/6.
-- **No automated test for the profile endpoints** — the Phase 4 lifecycle was
-  verified manually via curl. `src/test` still only holds the default
-  context-load test. Worth adding an integration test.
+  `TextNormalizer` strips tags for matching, but the stored column keeps them.
+  Revisit before Phase 6 puts descriptions in front of a human.
+- **No automated test for the profile or fetch endpoints.** Phase 5a added the
+  first unit tests, but they cover the scoring package only — the web layer and
+  the repositories are still verified by hand via `scripts/smoke-test.ps1`.
 - **Cosmetic:** `expectedSalary` echoes as `4000000` on POST but `4000000.00` on
   GET (DB `numeric(12,2)` scale). Harmless; set the scale in the entity setter if
   consistent JSON is wanted.
@@ -130,18 +182,32 @@ selects, and `GET` works cleanly with `open-in-view=false`. No change needed.
 
 ## ▶️ Immediate next step (do this when you return)
 
-Start **Phase 5 — Rule engine + LLM explanations** (the most important phase):
+**First: verify Phase 5a.** None of it has been compiled — Docker Desktop was
+down for the whole 2026-08-19 session, so the scoring package, its unit tests and
+the new smoke-test section are all unrun code.
 
-1. **Deterministic rule engine first.** Score each `JobListing` against the
-   `CandidateProfile` — skill overlap, location match, seniority/experience fit,
-   keyword hits, salary when present. The score is produced by code, not the LLM.
-2. **Then the LLM explanation layer.** Feed the top-N shortlist plus the computed
-   score to an LLM and have it *explain* the match in a sentence or two. It must
-   never produce or adjust the number.
-3. **Decide the LLM provider** (Spring AI vs direct REST) and add the key to
-   `.env` — currently unconfigured.
-4. Consider the **text-normalisation pass** (see Known issues) before scoring, so
-   messy company/title text doesn't skew matches.
+```bash
+docker compose up --build -d
+docker build --target build -t jobdiscovery-build .
+docker run --rm jobdiscovery-build ./gradlew --no-daemon test
+.\scripts\smoke-test.ps1
+```
+
+Then eyeball `GET /api/matches?limit=10` against the ~57 stored jobs and sanity-
+check the ranking by hand — the weights are a first guess and will need tuning
+once there is real output to look at.
+
+**Then Phase 5b — LLM match explanations:**
+
+1. **Decide the provider** (Spring AI vs direct REST via `RestClient`) and add
+   the key to `.env` — still unconfigured.
+2. Feed the top-N `JobScore` records — score, matched/missing skills, seniority
+   read, stated experience range — to the model and have it *explain* the match
+   in a sentence or two. It must never produce or adjust the number; the
+   evidence fields on `JobScore` exist precisely so it does not have to reason
+   from the raw posting.
+3. Cache or persist explanations if they get expensive — scoring is currently
+   recomputed on every request, and an LLM call per job per request is not.
 
 **Deferred idea — resume upload (discussed 2026-07-27).** Extract the profile
 from an uploaded PDF/DOCX (Apache PDFBox + Apache POI). Agreed to defer until
@@ -155,7 +221,8 @@ must not be mistaken for preferred ones).
 
 Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 `POST /api/adzuna/import`, `GET /api/adzuna/search` (raw), `GET /api/jobs[?source=]`,
-`GET /api/jobs/count`, `POST|GET|DELETE /api/profile`.
+`GET /api/jobs/count`, `POST|GET|DELETE /api/profile`,
+`GET /api/matches?limit=&minScore=&source=`.
 
 ---
 

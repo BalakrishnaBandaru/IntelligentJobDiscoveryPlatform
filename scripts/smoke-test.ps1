@@ -1,13 +1,13 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    End-to-end smoke test for the Intelligent Job Discovery Platform (Phases 0-4).
+    End-to-end smoke test for the Intelligent Job Discovery Platform (Phases 0-5).
 
 .DESCRIPTION
     Validates the running Docker stack: app health + DB connectivity, the Flyway
     schema version, the multi-source fetch and its content-hash de-duplication,
-    and the full candidate-profile lifecycle (upsert, list cleaning, validation,
-    cascade delete).
+    the full candidate-profile lifecycle (upsert, list cleaning, validation,
+    cascade delete), and the ranked shortlist the rule engine produces.
 
     The profile tests are destructive by nature - they delete the profile to
     exercise the 404 path. The script backs up the existing profile first and
@@ -372,6 +372,69 @@ try {
         Write-Host '         "docker compose up -d --force-recreate app", wait ~2 min, then' -ForegroundColor DarkGray
         Write-Host '         REVERT the cron in .env and recreate again.' -ForegroundColor DarkGray
     }
+
+    Write-Section '10. Ranked matches (Phase 5 rule engine)'
+
+    # Section 7 left the profile deleted, so the 404 path can be checked first.
+    $noProfile = Invoke-Api -Path '/api/matches'
+    Assert-That -Name 'Matches without a profile returns 404' -Condition ($noProfile.Status -eq 404) `
+                -Detail "got HTTP $($noProfile.Status)"
+
+    $sampleFile = Join-Path $RepoRoot 'sample-profile.json'
+    if (-not (Test-Path $sampleFile)) {
+        Write-Skip 'Ranking tests' 'sample-profile.json not found'
+    } else {
+        Invoke-Api -Method POST -Path '/api/profile' -BodyFile $sampleFile | Out-Null
+
+        $jobCount = [int]((Invoke-Api -Path '/api/jobs/count').Body)
+        if ($jobCount -eq 0) {
+            Write-Skip 'Ranking tests' 'no jobs in the database - run without -SkipFetch'
+        } else {
+            $matches = Invoke-Api -Path '/api/matches?limit=5'
+            Assert-That -Name 'GET /api/matches returns 200' -Condition ($matches.Status -eq 200) `
+                        -Detail "got HTTP $($matches.Status): $($matches.Body)"
+
+            # ConvertFrom-Json on "[]" yields $null in PS 5.1, and @($null)
+            # has Count 1 - filter the nulls out so an empty result counts as 0.
+            $ranked = @($matches.Json | Where-Object { $null -ne $_ })
+            Assert-That -Name 'Honours the limit' -Condition ($ranked.Count -le 5) `
+                        -Detail "returned $($ranked.Count)"
+            Assert-That -Name 'Returns at least one match' -Condition ($ranked.Count -gt 0) `
+                        -Detail 'ranking produced nothing from a non-empty job table'
+
+            if ($ranked.Count -gt 0) {
+                $inRange = $true
+                $descending = $true
+                $previous = 101.0
+                foreach ($m in $ranked) {
+                    if ($m.score -lt 0 -or $m.score -gt 100) { $inRange = $false }
+                    if ($m.score -gt $previous) { $descending = $false }
+                    $previous = $m.score
+                }
+                Assert-That -Name 'Every score sits within 0-100' -Condition $inRange
+                Assert-That -Name 'Results are ranked highest first' -Condition $descending `
+                            -Detail "scores: $(($ranked | ForEach-Object { $_.score }) -join ', ')"
+
+                $top = $ranked[0]
+                Assert-That -Name 'Each match carries a six-dimension breakdown' `
+                            -Condition (@($top.components).Count -eq 6) `
+                            -Detail "got $(@($top.components).Count) components"
+                Assert-That -Name 'Breakdown names the seniority dimension' `
+                            -Condition (@($top.components | Where-Object { $_.name -eq 'seniority' }).Count -eq 1)
+                Assert-That -Name 'Each match reports matched and missing skills' `
+                            -Condition ($null -ne $top.matchedSkills -and $null -ne $top.missingSkills)
+
+                Write-Host "         top match: $([Math]::Round($top.score,1)) - $($top.title) @ $($top.company) ($($top.location))" -ForegroundColor DarkGray
+                Write-Host "         seniority: $($top.jobSeniority); matched skills: $(@($top.matchedSkills) -join ', ')" -ForegroundColor DarkGray
+            }
+
+            $filtered = Invoke-Api -Path '/api/matches?minScore=101'
+            $filteredCount = @($filtered.Json | Where-Object { $null -ne $_ }).Count
+            Assert-That -Name 'minScore filters everything out above 100' `
+                        -Condition ($filteredCount -eq 0) `
+                        -Detail "returned $filteredCount"
+        }
+    }
 }
 finally {
     Write-Section 'Restoring profile'
@@ -419,5 +482,5 @@ if ($script:Failed -gt 0) {
     exit 1
 }
 Write-Host ''
-Write-Host 'SMOKE TEST PASSED - Phases 0-4 verified.' -ForegroundColor Green
+Write-Host 'SMOKE TEST PASSED - Phases 0-5 verified.' -ForegroundColor Green
 exit 0
