@@ -1,0 +1,9 @@
+{
+  "skills": ["Java", "Spring Boot", "PostgreSQL", "REST APIs", "JPA/Hibernate", "Docker"],
+  "experienceYears": 11,
+  "preferredLocations": ["Bangalore", "Bengaluru", "Remote","Hybrid", "India"],
+  "preferredCompanies": ["Atlassian", "Razorpay", "Swiggy", "Flipkart"],
+  "expectedSalary": 4000000,
+  "noticePeriodDays": 30,
+  "keywords": ["backend", "microservices", "distributed systems", "java developer"]
+}

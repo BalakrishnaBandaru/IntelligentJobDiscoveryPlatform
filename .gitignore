@@ -3,6 +3,10 @@
 *.env
 !.env.example
 
+### Personal data — the real candidate profile (salary, notice period, etc.).
+### sample-profile.json IS committed as the placeholder example payload.
+my-profile.json
+
 ### Gradle ###
 .gradle
 build/
