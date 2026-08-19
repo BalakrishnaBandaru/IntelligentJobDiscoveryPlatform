@@ -4,20 +4,15 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-07-23._
+> _Last updated: 2026-07-27._
 
 ---
 
 ## 📍 Current phase
 
-**Phase 3 — Scheduler** — *built & verified; awaiting the user's go-ahead for
-Phase 4.*
-
-Daily automated fetch via Spring `@Scheduled` — cron `0 0 6 * * *`, zone
-`Asia/Kolkata`, all configurable (`FETCH_SCHEDULE_*` / `FETCH_KEYWORDS` /
-`FETCH_LOCATION`). Verified firing under a fast test cron: each run logs
-new-jobs-per-run with a per-source breakdown and applies dedup. Next real run is
-06:00 IST. User's stated checkpoint is to let it run unattended and check logs.
+**Phase 4 — Candidate profile — DONE (2026-07-27).** Verified end-to-end against
+the running stack. Next up: **Phase 5 — Rule engine + LLM explanations**, the
+most important phase.
 
 ---
 
@@ -33,14 +28,39 @@ new-jobs-per-run with a per-source breakdown and applies dedup. Next real run is
   Jooble active (India fallback); Arbeitnow integrated but disabled; content-hash
   dedup confirmed (re-run saves 0); `V2` migration; `POST /api/fetch` orchestrates
   active sources with per-source counts. User confirmed.
-- [ ] **Phase 3 — Scheduler** — built & verified; checkpoint (unattended run) pending
-  `@EnableScheduling` + daily cron (06:00 IST, configurable); logs
-  new-jobs-per-run. Demonstrated firing under a fast test cron.
-- [ ] Phase 4 — Candidate profile
+- [x] **Phase 3 — Scheduler** — **DONE (2026-07-23).**
+  `@EnableScheduling` + daily cron (06:00 IST, configurable via
+  `FETCH_SCHEDULE_*` / `FETCH_KEYWORDS` / `FETCH_LOCATION`); logs
+  new-jobs-per-run with a per-source breakdown and applies dedup. Verified firing
+  under a fast test cron, and confirmed still registered on the 2026-07-27 boot.
+- [x] **Phase 4 — Candidate profile** — **DONE (2026-07-27).** See below.
 - [ ] Phase 5 — Rule engine + LLM explanations *(most important)*
 - [ ] Phase 6 — Telegram notifications
 - [ ] Phase 7 — Application tracking
 - [ ] Phase 8 — Demo polish (Docker/Adminer already done; Swagger, README, screenshots)
+
+### Phase 4 verification (2026-07-27)
+
+Code was written 2026-07-25 but the session ended before it was run or
+committed. Verified on 2026-07-27 against a fresh container rebuild:
+
+| Check | Result |
+|---|---|
+| Gradle build in container | ✅ BUILD SUCCESSFUL |
+| Flyway `V3` migration | ✅ Applied; schema at v3 |
+| App boot | ✅ Started 14.6s, healthy, no exceptions |
+| `GET /api/profile` (unset) | ✅ 404 `profile_not_found` |
+| `POST /api/profile` | ✅ 200, all fields persisted |
+| `GET /api/profile` | ✅ 200, all four collections returned |
+| `POST` again (upsert) | ✅ id/createdAt preserved, updatedAt bumped |
+| Trim + dedupe of list values | ✅ `["  Java  ","Java","Kafka",""]` → `["Java","Kafka"]` |
+| Bean validation (2 payloads) | ✅ 400 with per-field messages |
+| `DELETE` | ✅ 204; child rows cascaded to 0 |
+| Regression: health / jobs/count / scheduler | ✅ UP / 57 jobs / cron registered |
+
+**Resolved risk:** four `EAGER` `@ElementCollection` bags on one entity did *not*
+trigger `MultipleBagFetchException` — Hibernate 6 loads them via separate
+selects, and `GET` works cleanly with `open-in-view=false`. No change needed.
 
 ---
 
@@ -55,21 +75,38 @@ new-jobs-per-run with a per-source breakdown and applies dedup. Next real run is
     `RestClient.builder()`.
 - **PostgreSQL, not H2.**
 - **Flyway migrations + `ddl-auto: none`** — schema versioned/explicit (V1 = table,
-  V2 = content_hash + unique index).
+  V2 = content_hash + unique index, V3 = candidate profile + 4 child tables).
 - **De-dup by content-hash** of normalised `(title|company|location)`, NOT by
   apply URL (URLs differ across sources / carry volatile tracking params). Unique
   index `ux_job_listing_content_hash`. Catches re-fetches AND cross-source dupes.
 - **Per-source location handling** — Jooble uses a configurable fallback location
   (default "India") because it can't geocode Indian cities (see Known issues).
+- **Profile is a singleton** — single-user tool, so `POST /api/profile` upserts
+  the lowest-id row. The table still carries a surrogate id so it extends to
+  multiple named profiles later without a schema change.
+- **Profile list fields use `@ElementCollection` child tables**, not comma-joined
+  columns — keeps them queryable and portable for Phase 5 scoring.
+- **Real profile data stays out of git** — `my-profile.json` is git-ignored;
+  `sample-profile.json` is the committed placeholder example. Salary expectation
+  and notice period must never be committed.
 - **Hybrid scoring (Phase 5):** deterministic rule engine produces the score; the
   LLM only *explains* it — never invents its own number.
 - **Terminology:** "automation pipeline with AI-assisted scoring", NOT an "AI agent".
 - **Target profile:** Java backend, Bangalore / India.
+- **Git identity** — this repo has a **local** `user.name` / `user.email` in
+  `.git/config` pointing at the personal account
+  (`Balakrishna Bandaru <balakrishnab7@gmail.com>`). The global `.gitconfig` is a
+  work identity; do not let it leak in. All 25 pre-Phase-4 commits were rewritten
+  on 2026-07-27 to the personal identity (dates and content preserved).
 
 ---
 
 ## ⚠️ Known issues / flagged, not yet fixed
 
+- **Seniority mismatch (new, affects Phase 5).** The candidate has **10 years**
+  of experience, but the scheduler fetches on `FETCH_KEYWORDS="java developer"`,
+  which surfaces many 2–5 year roles. Phase 5 scoring should weight seniority,
+  and the fetch keywords likely need widening (senior / lead / staff).
 - **Arbeitnow disabled** (resolved). Verified its API supports no keyword/location
   filtering (only pagination + `visa_sponsorship`). Disabled via
   `arbeitnow.enabled=false`; client code kept + documented for a possible future
@@ -82,23 +119,43 @@ new-jobs-per-run with a per-source breakdown and applies dedup. Next real run is
   Needs a normalisation/cleanup pass **before Phase 5 scoring**.
 - **No HTML sanitisation** of `description` (Adzuna/Arbeitnow may contain HTML).
   Revisit before Phase 5/6.
+- **No automated test for the profile endpoints** — the Phase 4 lifecycle was
+  verified manually via curl. `src/test` still only holds the default
+  context-load test. Worth adding an integration test.
+- **Cosmetic:** `expectedSalary` echoes as `4000000` on POST but `4000000.00` on
+  GET (DB `numeric(12,2)` scale). Harmless; set the scale in the entity setter if
+  consistent JSON is wanted.
 
 ---
 
 ## ▶️ Immediate next step (do this when you return)
 
-1. **Await the user's Phase 3 sign-off** — they either let the scheduler run and
-   check the 06:00 IST logs, or accept the demonstrated firing.
-2. Then start **Phase 4 — Candidate Profile**: a `CandidateProfile` entity
-   (skills[], experienceYears, preferredLocations[], preferredCompanies[],
-   expectedSalary, noticePeriod, keywords[]); the user supplies real profile data
-   via a seed script or simple POST endpoint (no resume parsing). This drives
-   Phase 5 scoring — collect the user's REAL values then (profile fields in the
-   original brief were placeholders).
+Start **Phase 5 — Rule engine + LLM explanations** (the most important phase):
+
+1. **Deterministic rule engine first.** Score each `JobListing` against the
+   `CandidateProfile` — skill overlap, location match, seniority/experience fit,
+   keyword hits, salary when present. The score is produced by code, not the LLM.
+2. **Then the LLM explanation layer.** Feed the top-N shortlist plus the computed
+   score to an LLM and have it *explain* the match in a sentence or two. It must
+   never produce or adjust the number.
+3. **Decide the LLM provider** (Spring AI vs direct REST) and add the key to
+   `.env` — currently unconfigured.
+4. Consider the **text-normalisation pass** (see Known issues) before scoring, so
+   messy company/title text doesn't skew matches.
+
+**Deferred idea — resume upload (discussed 2026-07-27).** Extract the profile
+from an uploaded PDF/DOCX (Apache PDFBox + Apache POI). Agreed to defer until
+*after* Phase 5 so it can reuse the Phase 5 LLM client for extraction rather than
+brittle regex. Design agreed: **additive, not a replacement** — upload returns a
+*draft* profile for review, and the existing JSON `POST /api/profile` still does
+the saving. Note a resume only reliably supplies `skills`, `experienceYears` and
+`keywords`; `preferredCompanies` / `preferredLocations` / `expectedSalary` /
+`noticePeriodDays` are *preferences* a resume cannot provide (and past employers
+must not be mistaken for preferred ones).
 
 Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 `POST /api/adzuna/import`, `GET /api/adzuna/search` (raw), `GET /api/jobs[?source=]`,
-`GET /api/jobs/count`.
+`GET /api/jobs/count`, `POST|GET|DELETE /api/profile`.
 
 ---
 
@@ -114,4 +171,4 @@ Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 
 ---
 _Secrets live only in `.env` (git-ignored). This file records **status only**,
-never key values._
+never key values. Personal profile data lives in `my-profile.json` (git-ignored)._
