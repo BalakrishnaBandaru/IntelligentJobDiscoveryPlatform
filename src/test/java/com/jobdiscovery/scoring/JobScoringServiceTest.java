@@ -24,7 +24,7 @@ class JobScoringServiceTest {
     // The repository and profile service are only used by rank(); score() is
     // pure, so they are not needed here.
     private final JobScoringService service = new JobScoringService(null, null,
-            new ScoringProperties(new ScoringProperties.Weights(35, 25, 20, 10, 5, 5)));
+            new ScoringProperties(new ScoringProperties.Weights(35, 25, 20, 10, 5, 5), "India"));
 
     // --- fixtures ----------------------------------------------------------
 
@@ -233,5 +233,41 @@ class JobScoringServiceTest {
 
         assertEquals(List.of("Java"), scored.matchedSkills());
         assertEquals(List.of("Spring Boot"), scored.missingSkills());
+    }
+
+    @Test
+    @DisplayName("a country-only location is unknown, not wrong")
+    void countryOnlyLocationIsPartialCredit() {
+        // Jooble cannot geocode Indian cities and reports "India" for every
+        // result. Scoring that zero buried every Jooble listing by 20 points.
+        JobScore scored = service.score(
+                job("Java Developer", "Mastercard", "India", "8+ years of experience", NOW),
+                seniorJavaCandidate(), NOW);
+
+        assertEquals(0.5, component(scored, "location").value(), 0.01);
+    }
+
+    @Test
+    @DisplayName("a named non-preferred city still scores zero on location")
+    void namedWrongCityScoresZero() {
+        // The partial credit above must not leak into postings that name a real
+        // city the candidate did not ask for.
+        JobScore scored = service.score(
+                job("Java Developer", "Acme", "Hyderabad, India", "8+ years of experience", NOW),
+                seniorJavaCandidate(), NOW);
+
+        assertEquals(0.0, component(scored, "location").value(), 0.01);
+    }
+
+    @Test
+    @DisplayName("an exact country preference still scores a full match")
+    void countryPreferenceIsFullMatch() {
+        CandidateProfile candidate = profile(List.of("Java"), 10, List.of("India"),
+                List.of(), List.of());
+        JobScore scored = service.score(
+                job("Java Developer", "Acme", "India", "8+ years of experience", NOW),
+                candidate, NOW);
+
+        assertEquals(1.0, component(scored, "location").value(), 0.01);
     }
 }

@@ -17,6 +17,13 @@ repositories {
 	mavenCentral()
 }
 
+// Compile with UTF-8 regardless of the platform default. Gradle otherwise uses
+// the JVM's platform encoding, which inside the build container is not UTF-8 —
+// an em dash in a score-breakdown string literal reached the API as "?".
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+}
+
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'

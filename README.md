@@ -175,14 +175,21 @@ curl "http://localhost:8080/api/matches?limit=5"
 
 ## Testing
 
-Unit tests cover the rule engine (scoring, text normalisation, seniority and
-experience parsing). They need no database and no running stack — but they do
-need a JDK, so with the Docker-everything setup they run inside the build stage
-of the image rather than on the host:
+Tests run in a container like everything else — no host JDK needed. The `test`
+service uses the Dockerfile's *build* stage (the runtime stage is a JRE with only
+`app.jar` in it, so Gradle is not there) and is behind a profile, so it never
+starts with `docker compose up`:
 
 ```bash
-docker build --target build -t jobdiscovery-build .
-docker run --rm jobdiscovery-build ./gradlew --no-daemon test
+docker compose --profile test run --rm test
+```
+
+That runs the whole suite. It brings up `db` first because the `@SpringBootTest`
+context-load test needs a real database to start against — the rule-engine tests
+themselves need nothing, and can be run alone if the database is inconvenient:
+
+```bash
+docker compose --profile test run --rm test ./gradlew --no-daemon test --tests 'com.jobdiscovery.scoring.*'
 ```
 
 For an end-to-end check against a running stack — health, migrations, the fetch

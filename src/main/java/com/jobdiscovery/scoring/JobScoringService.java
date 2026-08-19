@@ -263,6 +263,20 @@ public class JobScoringService {
             return ScoreComponent.of("location", weight, 0.3,
                     "posting states no location");
         }
+
+        // A posting located at nothing more precise than the country is
+        // location-UNKNOWN, not location-wrong. Jooble cannot geocode Indian
+        // cities and reports "India" for every result (see PROJECT_STATE), so
+        // scoring these zero buries every Jooble listing by 20 points no matter
+        // how well it otherwise fits. Note this only fires when the location is
+        // *exactly* the country: "Hyderabad, India" names a real, non-preferred
+        // city and still scores zero.
+        if (locationTokens.equals(TextNormalizer.tokenize(properties.homeCountry()))) {
+            return ScoreComponent.of("location", weight, 0.5,
+                    "'" + listing.getLocation() + "' is country-level only — the "
+                            + "posting may or may not be in a preferred city");
+        }
+
         return ScoreComponent.of("location", weight, 0.0,
                 "'" + listing.getLocation() + "' is not a preferred location");
     }

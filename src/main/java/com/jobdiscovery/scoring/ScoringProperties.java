@@ -16,7 +16,14 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * restarting, without touching the engine.
  */
 @ConfigurationProperties(prefix = "scoring")
-public record ScoringProperties(@DefaultValue Weights weights) {
+public record ScoringProperties(
+        @DefaultValue Weights weights,
+        /*
+         * The country the search targets. A posting whose location is *only*
+         * this country is treated as location-unknown rather than
+         * location-wrong — see JobScoringService.scoreLocation.
+         */
+        @DefaultValue("India") String homeCountry) {
 
     /**
      * @param skills           overlap between profile skills and the posting

@@ -101,6 +101,10 @@ fetch:
 # No LLM is involved in producing the number: Phase 5's LLM layer only explains
 # the score these weights produce.
 scoring:
+  # The country this search targets. A posting whose location is *only* this
+  # country (Jooble reports "India" for every result, since it cannot geocode
+  # Indian cities) is scored as location-unknown rather than location-wrong.
+  home-country: ${SCORING_HOME_COUNTRY:India}
   weights:
     # Skill overlap between the profile and the posting text.
     skills: ${SCORING_WEIGHT_SKILLS:35}

@@ -83,5 +83,28 @@ services:
       start_period: 40s
     restart: unless-stopped
 
+  # One-off test runner. Uses the Dockerfile's BUILD stage (which has the JDK,
+  # Gradle and the sources) rather than the runtime stage, which is a JRE with
+  # only app.jar in it. Behind a profile so it never starts with `up`.
+  #
+  #   docker compose --profile test run --rm test
+  #
+  # It joins the compose network and waits for a healthy db, because the
+  # @SpringBootTest context-load test needs a real database to start against.
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["./gradlew", "--no-daemon", "test"]
+
 volumes:
   pgdata:
