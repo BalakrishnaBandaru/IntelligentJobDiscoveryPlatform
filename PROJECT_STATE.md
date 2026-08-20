@@ -199,10 +199,35 @@ network — `ClaudeClient` is subclassed with a recording stub, so what is teste
 is the prompt contract, the caching, and the cost cap.
 
 **Verified 2026-08-20 without a key:** app boots, ranking unchanged, every match
-carries `explanation: null`, and `&explain=true` returns 503 with the
-actionable message. **Not verified:** anything involving a real API call — the
-request shape, the model id, and the response parsing have never been exercised
-against the live API.
+carries `explanation: null`, and `&explain=true` returns 503 with the actionable
+message.
+
+**First live attempt, 2026-08-20 — blocked on account credit, not on code.**
+The key was added to `.env` and `EXPLANATION_ENABLED=true` set. The request
+reached Anthropic and was rejected:
+
+```
+HTTP 400 invalid_request_error
+"Your credit balance is too low to access the Anthropic API.
+ Please go to Plans & Billing to upgrade or purchase credits."
+```
+
+Confirmed by that round trip:
+
+| Check | Result |
+|---|---|
+| Key authenticates | ✅ `GET /v1/models/claude-opus-5` → 200 |
+| Model id `claude-opus-5` is real | ✅ 1M input / 128K output |
+| `effort: low` is a supported value | ✅ low/medium/high/xhigh/max all supported |
+| Adaptive thinking (we omit `thinking`) | ✅ `adaptive` supported, `enabled` **not** — so omitting it is right |
+| Our error path, end to end | ✅ 502 `explanation_upstream_error` with the upstream body surfaced verbatim, which is how the cause was identified in one look |
+
+**Still unverified — needs credit on the account:** the request *body* shape
+(a billing rejection may precede schema validation, so a 400 here does not
+clear it), the response parsing, and whether the explanations actually read
+well against evidence this thin. **Add credit at
+<https://console.anthropic.com/settings/billing>, then re-run the curl in
+Immediate next step.** No code change is expected to be needed.
 
 ---
 
@@ -400,22 +425,18 @@ numbers that mean something. `scoring.truncated-miss-weight` (default `0.5`) is
 itself the first knob worth trying; the weights have never been tuned against
 real output.
 
-**Next: make the first live explanation call.** Phase 5b is built and wired but
-has never talked to the API. Add to `.env`, then recreate the app container:
+**Next: add API credit, then make the first successful explanation call.** The
+key is already in `.env` and `EXPLANATION_ENABLED=true` is set; the app is
+recreated and the request reaches Anthropic. It fails only because the account
+has no credit — see the Phase 5b section above.
 
-```
-EXPLANATION_ENABLED=true
-ANTHROPIC_API_KEY=sk-ant-...
-```
+1. Add credit at <https://console.anthropic.com/settings/billing>.
+2. `curl "http://localhost:8080/api/matches?limit=3&explain=true"`
 
-```bash
-docker compose up -d --force-recreate app
-curl "http://localhost:8080/api/matches?limit=3&explain=true"
-```
-
-Watch for: the request shape being accepted, `stop_reason`, and whether the
-explanations actually read well against evidence this thin (every posting is a
-truncated preview). Then tune `EXPLANATION_EFFORT` / the system prompt.
+Watch for: the request body being accepted (untested — the billing rejection may
+have short-circuited schema validation), `stop_reason`, and whether the
+explanations read well against evidence this thin, since every posting is a
+truncated preview. Then tune `EXPLANATION_EFFORT` and the system prompt.
 
 **Then Phase 6 — Telegram notifications.**
 
@@ -443,7 +464,7 @@ Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 | **Adzuna** | ✅ working | App ID + Key in `.env`; live fetch confirmed |
 | **Jooble** | ✅ working | Key in `.env`; returns India-wide results (city fallback) |
 | **Arbeitnow** | ⏸️ disabled | Integrated but off (`arbeitnow.enabled=false`); no useful filtering for this search |
-| **Anthropic** (Phase 5b) | ❌ key not set | Client built (direct REST, `claude-opus-5`). Set `ANTHROPIC_API_KEY` + `EXPLANATION_ENABLED=true` |
+| **Anthropic** (Phase 5b) | ⚠️ key valid, **no credit** | Key in `.env`, `EXPLANATION_ENABLED=true`, auth confirmed via `/v1/models`. Calls fail with "credit balance is too low" until billing is topped up |
 | **Telegram bot** (Phase 6) | ❌ not created | Create via BotFather at Phase 6 |
 
 ---
