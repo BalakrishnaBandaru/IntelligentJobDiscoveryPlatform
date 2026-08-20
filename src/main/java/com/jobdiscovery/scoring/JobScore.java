@@ -19,6 +19,9 @@ import java.util.List;
  * @param jobSeniority     level inferred from the title
  * @param requiredYears    experience the posting states, or {@code null}
  * @param components       per-dimension breakdown that sums to {@link #score}
+ * @param explanation      the Phase 5b sentence, or {@code null} when it was
+ *                         not asked for. It is derived <i>from</i> the fields
+ *                         above and never feeds back into {@link #score}
  */
 public record JobScore(
         Long jobId,
@@ -34,5 +37,18 @@ public record JobScore(
         List<String> matchedKeywords,
         SeniorityLevel jobSeniority,
         ExperienceRequirement requiredYears,
-        List<ScoreComponent> components) {
+        List<ScoreComponent> components,
+        String explanation) {
+
+    /**
+     * The same match with an explanation attached.
+     *
+     * <p>A copy rather than a setter, so the scored result stays immutable and
+     * the explanation can never be mistaken for an input to the score.
+     */
+    public JobScore withExplanation(String explanation) {
+        return new JobScore(jobId, title, company, location, source, applyUrl, postedDate,
+                score, matchedSkills, missingSkills, matchedKeywords,
+                jobSeniority, requiredYears, components, explanation);
+    }
 }

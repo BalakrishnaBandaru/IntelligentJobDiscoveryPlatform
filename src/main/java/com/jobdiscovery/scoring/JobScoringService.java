@@ -133,7 +133,9 @@ public class JobScoringService {
                 total(components),
                 List.copyOf(matchedSkills), List.copyOf(missingSkills),
                 List.copyOf(matchedKeywords),
-                jobSeniority, required, components);
+                jobSeniority, required, components,
+                // Filled in downstream by the Phase 5b explainer, if asked for.
+                null);
     }
 
     /**

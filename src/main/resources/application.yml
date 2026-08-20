@@ -128,3 +128,25 @@ scoring:
     preferred-company: ${SCORING_WEIGHT_PREFERRED_COMPANY:5}
     # Freshness of the posting (skipped when the source reports no date).
     recency: ${SCORING_WEIGHT_RECENCY:5}
+
+# --- Phase 5b: LLM match explanations ---------------------------------------
+# The rule engine above produces the score. This layer only puts that score into
+# words — it is never shown the raw posting and can never change the number.
+explanation:
+  # Off by default so the app boots, and the smoke test passes, with no API key
+  # present at all. Turn on only once ANTHROPIC_API_KEY is set.
+  enabled: ${EXPLANATION_ENABLED:false}
+  api-key: ${ANTHROPIC_API_KEY:}
+  base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+  # Current default model. Changing this is a deliberate decision, not a way to
+  # quietly save money — see README for the pricing.
+  model: ${EXPLANATION_MODEL:claude-opus-5}
+  # Thinking tokens count towards this as well as the visible answer, so it is
+  # deliberately looser than a two-sentence reply would need.
+  max-tokens: ${EXPLANATION_MAX_TOKENS:2048}
+  # The evidence arrives pre-computed and the model only has to phrase it, so
+  # low effort is the right setting here.
+  effort: ${EXPLANATION_EFFORT:low}
+  # How many of the ranked results get an explanation. Each one is a separate
+  # billed API call, so this is the cost control.
+  max-matches: ${EXPLANATION_MAX_MATCHES:5}

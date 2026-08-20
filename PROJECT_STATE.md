@@ -13,8 +13,12 @@
 **Phase 5a — Deterministic rule engine — DONE and VERIFIED (2026-08-20).**
 Built 2026-08-19 without ever being compiled (Docker Desktop was down that whole
 session); verified 2026-08-20 against a full rebuild — see the table below.
-The description-truncation problem that the first real ranking exposed is now
-**fixed** (see below). Next up: **Phase 5b — LLM match explanations**.
+**Phase 5b — LLM match explanations — BUILT and WIRED (2026-08-20), NOT YET
+CALLED LIVE.** The truncation and word-break problems the first real ranking
+exposed are both fixed. `GET /api/matches?explain=true` is in place and the
+unconfigured path is verified, but **no request has ever reached the Anthropic
+API** — the user is adding `ANTHROPIC_API_KEY` themselves. Next up: set the key,
+make the first live call, then **Phase 6 — Telegram notifications**.
 
 ---
 
@@ -40,8 +44,9 @@ The description-truncation problem that the first real ranking exposed is now
 - [x] **Phase 5a — Deterministic rule engine** — **DONE (verified 2026-08-20).**
       `GET /api/matches` ranks stored listings against the profile across six
       weighted dimensions. See below.
-- [ ] Phase 5b — LLM match explanations *(next; provider undecided)*
-- [ ] Phase 6 — Telegram notifications
+- [x] **Phase 5b — LLM match explanations** — **BUILT 2026-08-20, no live call yet.**
+      `GET /api/matches?explain=true`. See below.
+- [ ] Phase 6 — Telegram notifications *(next)*
 - [ ] Phase 7 — Application tracking
 - [ ] Phase 8 — Demo polish (Docker/Adminer already done; Swagger, README, screenshots)
 
@@ -147,6 +152,57 @@ Tech Lead* @ PayU, Bangalore. Scores spanned 28.8–70.5, median 49.2. Seniority
 location and recency all behaved as designed; the over-qualification penalty and
 the country-only location fix (`fe17ace`) both fired correctly on real rows. The
 skills dimension did **not** — see the truncation issue below.
+
+### Phase 5b — LLM match explanations (2026-08-20)
+
+New package `com.jobdiscovery.explain`, plus `&explain=true` on `/api/matches`
+and an `explanation.*` block in `application.yml`.
+
+**Provider decision (user, 2026-08-20): direct REST via `RestClient`**, not
+Spring AI. Chosen so the client is the same shape as `AdzunaClient` /
+`JoobleClient` / `ArbeitnowClient` and adds no dependency. Note an official Java
+SDK does exist (`com.anthropic:anthropic-java`) — this was a deliberate choice,
+not an oversight, and is the thing to revisit if the client grows.
+
+| Setting | Default | Why |
+|---|---|---|
+| `EXPLANATION_ENABLED` | `false` | App boots and the smoke test passes with no key at all |
+| `EXPLANATION_MODEL` | `claude-opus-5` | Current default model; $5/$25 per 1M in/out |
+| `EXPLANATION_EFFORT` | `low` | Evidence arrives pre-computed; the model only phrases it |
+| `EXPLANATION_MAX_MATCHES` | `5` | Each explained match is a separate billed call |
+
+Design points worth remembering:
+
+- **The model is never shown the posting.** It gets the score and the evidence
+  `JobScore` already carries — matched/missing skills, seniority read, stated
+  experience range, per-dimension breakdown — and nothing else. That is what
+  makes "it explains the number rather than forming its own view" true in code
+  rather than just in the prompt. A test asserts the prompt has no posting text.
+- **The system prompt tells it a missing skill means "not mentioned".** Given
+  the truncation finding above, saying "the job does not require it" would be an
+  outright falsehood; the prompt forbids it explicitly.
+- **`JobScore.withExplanation()` returns a copy.** The scored result stays
+  immutable, so an explanation can never be mistaken for an input to the score.
+- **Explanations are cached in memory, keyed by job *and score*.** Scoring is
+  recomputed per request, so without this a second call re-pays for the same
+  sentences. Keying on the score means re-tuning a weight expires the entry by
+  itself — no invalidation logic to get wrong. Lost on restart, which is fine.
+- **Refusal handling.** A refusal arrives as HTTP 200 with no usable content, so
+  `stop_reason` is checked before the content is read. Server-side refusal
+  fallbacks are enabled (`server-side-fallback-2026-07-01`).
+- **Unconfigured is a first-class state**, not a crash: `503
+  explanations_not_configured` with a message naming the exact env vars to set.
+  The ranking never depends on the LLM being reachable.
+
+**Tests: 61 passing** (8 new in `MatchExplainerTest`), none of which touch the
+network — `ClaudeClient` is subclassed with a recording stub, so what is tested
+is the prompt contract, the caching, and the cost cap.
+
+**Verified 2026-08-20 without a key:** app boots, ranking unchanged, every match
+carries `explanation: null`, and `&explain=true` returns 503 with the
+actionable message. **Not verified:** anything involving a real API call — the
+request shape, the model id, and the response parsing have never been exercised
+against the live API.
 
 ---
 
@@ -344,17 +400,24 @@ numbers that mean something. `scoring.truncated-miss-weight` (default `0.5`) is
 itself the first knob worth trying; the weights have never been tuned against
 real output.
 
-**Next: Phase 5b — LLM match explanations:**
+**Next: make the first live explanation call.** Phase 5b is built and wired but
+has never talked to the API. Add to `.env`, then recreate the app container:
 
-1. **Decide the provider** (Spring AI vs direct REST via `RestClient`) and add
-   the key to `.env` — still unconfigured.
-2. Feed the top-N `JobScore` records — score, matched/missing skills, seniority
-   read, stated experience range — to the model and have it *explain* the match
-   in a sentence or two. It must never produce or adjust the number; the
-   evidence fields on `JobScore` exist precisely so it does not have to reason
-   from the raw posting.
-3. Cache or persist explanations if they get expensive — scoring is currently
-   recomputed on every request, and an LLM call per job per request is not.
+```
+EXPLANATION_ENABLED=true
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+```bash
+docker compose up -d --force-recreate app
+curl "http://localhost:8080/api/matches?limit=3&explain=true"
+```
+
+Watch for: the request shape being accepted, `stop_reason`, and whether the
+explanations actually read well against evidence this thin (every posting is a
+truncated preview). Then tune `EXPLANATION_EFFORT` / the system prompt.
+
+**Then Phase 6 — Telegram notifications.**
 
 **Deferred idea — resume upload (discussed 2026-07-27).** Extract the profile
 from an uploaded PDF/DOCX (Apache PDFBox + Apache POI). Agreed to defer until
@@ -380,7 +443,7 @@ Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 | **Adzuna** | ✅ working | App ID + Key in `.env`; live fetch confirmed |
 | **Jooble** | ✅ working | Key in `.env`; returns India-wide results (city fallback) |
 | **Arbeitnow** | ⏸️ disabled | Integrated but off (`arbeitnow.enabled=false`); no useful filtering for this search |
-| **LLM API** (Phase 5) | ❌ not configured | Provider TBD (Spring AI vs direct REST) |
+| **Anthropic** (Phase 5b) | ❌ key not set | Client built (direct REST, `claude-opus-5`). Set `ANTHROPIC_API_KEY` + `EXPLANATION_ENABLED=true` |
 | **Telegram bot** (Phase 6) | ❌ not created | Create via BotFather at Phase 6 |
 
 ---

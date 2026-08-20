@@ -77,6 +77,13 @@ services:
       FETCH_SCHEDULE_ZONE: "${FETCH_SCHEDULE_ZONE:-Asia/Kolkata}"
       FETCH_KEYWORDS: "${FETCH_KEYWORDS:-java developer}"
       FETCH_LOCATION: "${FETCH_LOCATION:-bangalore}"
+      # Phase 5b — LLM match explanations. Off unless both the flag and a key
+      # are set, so the stack still comes up cleanly with neither.
+      EXPLANATION_ENABLED: "${EXPLANATION_ENABLED:-false}"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      EXPLANATION_MODEL: ${EXPLANATION_MODEL:-claude-opus-5}
+      EXPLANATION_EFFORT: ${EXPLANATION_EFFORT:-low}
+      EXPLANATION_MAX_MATCHES: ${EXPLANATION_MAX_MATCHES:-5}
     ports:
       - "8080:8080"
     depends_on:

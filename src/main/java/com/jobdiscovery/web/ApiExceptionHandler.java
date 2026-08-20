@@ -1,5 +1,6 @@
 package com.jobdiscovery.web;
 
+import com.jobdiscovery.explain.ExplanationException;
 import com.jobdiscovery.profile.ProfileNotFoundException;
 import com.jobdiscovery.source.SourceApiException;
 import java.time.Instant;
@@ -32,6 +33,20 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                 "timestamp", Instant.now().toString(),
                 "error", "profile_not_found",
+                "message", e.getMessage()));
+    }
+
+    @ExceptionHandler(ExplanationException.class)
+    public ResponseEntity<Map<String, Object>> handleExplanation(ExplanationException e) {
+        // 503 when the feature simply is not set up (a configuration problem the
+        // caller can fix), 502 when the upstream model failed us. Either way the
+        // ranking itself is unaffected — drop &explain=true and it still works.
+        HttpStatus status = ExplanationException.NOT_CONFIGURED.equals(e.getCode())
+                ? HttpStatus.SERVICE_UNAVAILABLE
+                : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", e.getCode(),
                 "message", e.getMessage()));
     }
 

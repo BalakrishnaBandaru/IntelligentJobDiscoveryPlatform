@@ -34,8 +34,8 @@ the only thing a human looks at is a short, ranked, explained shortlist.
 | 3 | Daily scheduler | ✅ Done |
 | 4 | Candidate profile | ✅ Done |
 | 5a | Rule engine (deterministic scoring) | ✅ Done |
-| 5b | LLM match explanations | ⏳ Next |
-| 6 | Telegram notifications | ⬜ |
+| 5b | LLM match explanations | ✅ Done |
+| 6 | Telegram notifications | ⏳ Next |
 | 7 | Application tracking | ⬜ |
 | 8 | Demo polish (Swagger, README, screenshots) | ⬜ |
 
@@ -135,8 +135,8 @@ real profile in `my-profile.json`, which is git-ignored so personal details
 
 Every stored listing is scored against the candidate profile by a
 **deterministic rule engine**. The score is produced by code — the LLM layer in
-Phase 5b will only put the result into words, and can neither produce nor adjust
-the number. That split is what keeps the ranking auditable and reproducible.
+Phase 5b only puts the result into words, and can neither produce nor adjust the
+number. That split is what keeps the ranking auditable and reproducible.
 
 | Method | Path | Behaviour |
 |---|---|---|
@@ -187,6 +187,42 @@ explain, rather than being asked to reason from the raw posting.
 ```bash
 curl "http://localhost:8080/api/matches?limit=5"
 ```
+
+### Match explanations (Phase 5b)
+
+Add `&explain=true` to have an LLM put the top matches into words. **The model
+never produces or adjusts the score.** It is handed the number and the evidence
+the rule engine already derived — matched and missing skills, the seniority
+read, the per-dimension breakdown — and asked only to phrase them. It is
+deliberately never shown the job posting, which is exactly why it cannot form
+its own opinion of the fit. The number stays something you can unit-test; the
+sentence is downstream of it.
+
+```bash
+curl "http://localhost:8080/api/matches?limit=5&explain=true"
+```
+
+Off until you configure it. Set both in `.env`, then recreate the app container:
+
+```
+EXPLANATION_ENABLED=true
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Without them the ranking works exactly as before and `&explain=true` returns
+`503 explanations_not_configured` — the shortlist never depends on the LLM being
+available.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `EXPLANATION_MODEL` | `claude-opus-5` | $5 / $25 per million input / output tokens |
+| `EXPLANATION_EFFORT` | `low` | The evidence arrives pre-computed; the model only phrases it |
+| `EXPLANATION_MAX_MATCHES` | `5` | Each explained match is a separate billed call — this is the cost control |
+
+Explanations are cached in memory, keyed by job **and score**. Scoring is
+recomputed on every request, so without that a second call would pay for the
+same sentences again; keying on the score means re-tuning a weight expires the
+entry by itself, with no invalidation logic to get wrong.
 
 ## Testing
 
