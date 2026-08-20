@@ -4,16 +4,18 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-19._
+> _Last updated: 2026-08-20._
 
 ---
 
 ## 📍 Current phase
 
-**Phase 5a — Deterministic rule engine — BUILT (2026-08-19), NOT YET RUN.**
-Written but not compiled or executed: Docker Desktop was down for the whole
-session, so nothing here has been through a build. Next up: **verify 5a against
-a running stack**, then **Phase 5b — LLM match explanations**.
+**Phase 5a — Deterministic rule engine — DONE and VERIFIED (2026-08-20).**
+Built 2026-08-19 without ever being compiled (Docker Desktop was down that whole
+session); verified 2026-08-20 against a full rebuild — see the table below.
+Next up: **Phase 5b — LLM match explanations**, and a **weight-tuning pass**
+(the first real ranking exposed a description-truncation problem — see Known
+issues).
 
 ---
 
@@ -36,7 +38,7 @@ a running stack**, then **Phase 5b — LLM match explanations**.
   under a fast test cron, and confirmed still registered on the 2026-07-27 boot.
 - [x] **Phase 4 — Candidate profile** — **DONE (2026-07-27).** See below.
       Committed 2026-08-19 (the code had sat uncommitted since 07-25).
-- [x] **Phase 5a — Deterministic rule engine** — **BUILT 2026-08-19, unverified.**
+- [x] **Phase 5a — Deterministic rule engine** — **DONE (verified 2026-08-20).**
       `GET /api/matches` ranks stored listings against the profile across six
       weighted dimensions. See below.
 - [ ] Phase 5b — LLM match explanations *(next; provider undecided)*
@@ -103,6 +105,50 @@ Design points worth remembering:
 `TextNormalizerTest`, `SeniorityLevelTest`, `ExperienceRequirementTest`,
 `JobScoringServiceTest` — all pure unit tests, no Spring context.
 
+### Phase 5a verification (2026-08-20)
+
+Verified against a full `docker compose up --build` rebuild. The code had never
+been compiled before this run.
+
+| Check | Result |
+|---|---|
+| Gradle build in container | ✅ BUILD SUCCESSFUL |
+| Full test suite | ✅ **39 tests, 0 failures, 0 errors** (1 context-load + 38 scoring) |
+| App boot | ✅ Healthy, DB UP, no exceptions |
+| Flyway | ✅ Schema at v3, all migrations `success = t` |
+| `GET /api/matches` (no profile) | ✅ 404 `profile_not_found` |
+| `GET /api/matches?limit=5` | ✅ 200, ranked highest-first, all scores 0–100 |
+| Six-dimension breakdown on every match | ✅ all six names present |
+| `matchedSkills` / `missingSkills` / `applyUrl` | ✅ populated |
+| `limit=0` / `minScore=101` | ✅ both return `[]` |
+| `source=ADZUNA` / `source=jooble` | ✅ filters, and is case-insensitive |
+| Determinism (same request twice) | ✅ identical jobId+score ordering |
+| Regression: profile lifecycle | ✅ upsert, trim/dedupe, 400 validation, 204 delete |
+| Regression: job count | ✅ 57 jobs (42 Adzuna / 15 Jooble) |
+
+**26/26 API assertions passed.** The `smoke-test.ps1` script itself could not be
+launched from the agent shell — `powershell.exe` is blocked by group policy on
+this machine (see Known issues) — so the same assertions were re-run directly
+against the API. **Run `.\scripts\smoke-test.ps1` by hand to exercise the
+script itself**, including the live-fetch section that was skipped here to
+preserve the daily Adzuna/Jooble quota.
+
+**Correction to the test command.** The previously documented
+`docker run --rm jobdiscovery-build ./gradlew --no-daemon test` **does not
+work**: `JobDiscoveryPlatformApplicationTests` is a `@SpringBootTest` and needs a
+reachable database, which a bare `docker run` has no network route to. Use the
+compose `test` profile, which joins the network and waits for a healthy db:
+
+```bash
+docker compose --profile test run --rm test
+```
+
+**First real ranking (57 jobs, real profile).** Top match 70.5 — *Java / J2EE
+Tech Lead* @ PayU, Bangalore. Scores spanned 28.8–70.5, median 49.2. Seniority,
+location and recency all behaved as designed; the over-qualification penalty and
+the country-only location fix (`fe17ace`) both fired correctly on real rows. The
+skills dimension did **not** — see the truncation issue below.
+
 ---
 
 ## 🧭 Key decisions
@@ -150,6 +196,34 @@ Design points worth remembering:
   Phase 5a engine now penalises over-qualification heavily, so those roles rank
   low — but they are still being *fetched*. Widening `FETCH_KEYWORDS`
   (senior / lead / staff) is still open.
+- **🔴 Adzuna descriptions are truncated to exactly 500 characters, which
+  starves the heaviest scoring dimension.** Found 2026-08-20 on the first real
+  ranking. Every one of the 42 Adzuna rows has `length(description) = 500`
+  exactly (Jooble averages 313) — the API returns a snippet, not the posting.
+  The `skills` dimension is weighted 35, the highest of the six, but it is
+  matching against that snippet. Across all 57 listings:
+
+  | Skills matched (of 8) | Listings |
+  |---:|---:|
+  | 0 | 25 |
+  | 1 | 20 |
+  | 2 | 11 |
+  | 4 | 1 |
+
+  No listing matches more than **4 of 8** skills. `Docker` and `PostgreSQL`
+  match **0/57**; `Kafka` and `MySQL` match 1; even `Java` matches only 31/57 —
+  on a search whose keyword *was* "java developer". So a low skills score
+  currently means "the snippet was cut off", not "the job does not want this
+  skill", and the top score is capped around 70. Fix directions, in order of
+  value: (a) fetch the full description from the posting URL, or find a fuller
+  field in the Adzuna response; (b) score skills against title + snippet but cap
+  the *penalty* for unmatched skills when the description is known-truncated;
+  (c) reduce the skills weight until (a) is possible. **Do this before tuning
+  any other weight** — the current numbers are measuring truncation.
+- **Skills scoring divides by the profile's skill count**, so listing more skills
+  lowers every score. An 8-skill profile is structurally penalised against a
+  3-skill one. Compounds the truncation issue above. Consider scoring against the
+  *matched* skills' importance rather than a flat fraction.
 - **No salary in `JobListing` — salary is NOT scored.** The original Phase 5 plan
   listed "salary when present" as a dimension, but the entity has no salary
   column: Adzuna returns `salary_min`/`salary_max` and the mapper drops them.
@@ -177,25 +251,44 @@ Design points worth remembering:
 - **Cosmetic:** `expectedSalary` echoes as `4000000` on POST but `4000000.00` on
   GET (DB `numeric(12,2)` scale). Harmless; set the scale in the entity setter if
   consistent JSON is wanted.
+- **Cosmetic, same class:** an *insert* response echoes `createdAt`/`updatedAt`
+  from the in-memory `Instant` at nanosecond precision
+  (`...266480283Z`), while every read-back comes from Postgres `timestamp(6)` at
+  microsecond precision (`...266480Z`). Same instant, different digits. Confirmed
+  2026-08-20 that upsert semantics are correct — id and `createdAt` *are*
+  preserved; only the echoed precision differs.
+- **`powershell.exe` is blocked by group policy on this machine** (work laptop),
+  so the agent cannot run `scripts/smoke-test.ps1` itself — both a direct spawn
+  and a `cmd.exe` wrapper are refused. **The user must run the smoke test by
+  hand**; the agent can only re-create its assertions with `curl`/`python`
+  against the API. Not a project defect, but it changes the verification loop.
+- **Backup/restore of the profile does not preserve `id` or `createdAt`.** The
+  smoke test (and any DELETE-then-POST cycle) creates a *new* row, so the
+  profile comes back with fresh identity. All user-meaningful fields survive and
+  the singleton invariant holds (1 row), so this is cosmetic for a single-user
+  tool — but do not treat profile `id` as stable across a smoke-test run.
 
 ---
 
 ## ▶️ Immediate next step (do this when you return)
 
-**First: verify Phase 5a.** None of it has been compiled — Docker Desktop was
-down for the whole 2026-08-19 session, so the scoring package, its unit tests and
-the new smoke-test section are all unrun code.
+**Phase 5a is verified — that blocker is cleared.** To bring the stack up and
+re-run the suite:
 
 ```bash
-docker compose up --build -d
-docker build --target build -t jobdiscovery-build .
-docker run --rm jobdiscovery-build ./gradlew --no-daemon test
-.\scripts\smoke-test.ps1
+docker compose up --build -d              # stack: db + adminer + app
+docker compose --profile test run --rm test   # 39 tests (needs the db — see above)
 ```
 
-Then eyeball `GET /api/matches?limit=10` against the ~57 stored jobs and sanity-
-check the ranking by hand — the weights are a first guess and will need tuning
-once there is real output to look at.
+```powershell
+.\scripts\smoke-test.ps1                  # run this yourself; agent is blocked by group policy
+```
+
+**First: fix the description truncation, then tune the weights.** The first real
+ranking showed the `skills` dimension (weight 35, the heaviest) is scoring
+against a 500-character Adzuna snippet rather than the posting — `Docker` and
+`PostgreSQL` match 0 of 57 rows. See the red item under Known issues. Tuning any
+weight before fixing this is tuning against an artefact.
 
 **Then Phase 5b — LLM match explanations:**
 
