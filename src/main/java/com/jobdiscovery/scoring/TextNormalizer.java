@@ -37,6 +37,16 @@ public final class TextNormalizer {
     private static final Pattern TRAILING_FILLER =
             Pattern.compile("(?:\\s|&(?:[a-zA-Z]+|#\\d+);)+$");
 
+    /**
+     * How many consecutive tokens may be glued together when looking for a
+     * differently-spaced spelling. Four covers the realistic cases
+     * ("spring boot", "amazon web services") without scanning the whole text.
+     */
+    private static final int MAX_JOIN_WINDOW = 4;
+
+    /** Below this length, gluing words together risks inventing matches. */
+    private static final int MIN_JOINED_LENGTH = 6;
+
     private TextNormalizer() {
         // Static utility.
     }
@@ -133,8 +143,52 @@ public final class TextNormalizer {
         // would otherwise demand "jpa hibernate" appear as one adjacent phrase.
         for (String alternative : term.split("[/,]")) {
             List<String> phrase = tokenize(alternative);
-            if (!phrase.isEmpty() && containsPhrase(haystack, phrase)) {
+            if (phrase.isEmpty()) {
+                continue;
+            }
+            if (containsPhrase(haystack, phrase) || containsJoined(haystack, phrase)) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when the haystack spells the phrase with the word breaks somewhere
+     * else — "Spring Boot" against a posting that writes "Springboot", and
+     * equally a profile listing "Springboot" against a posting that writes
+     * "Spring Boot".
+     *
+     * <p>Worth having because it is silent when it fails: a Mastercard listing
+     * naming Spring Boot <i>in its own title</i> scored it as a missing skill,
+     * purely because the title closed up the space. Comparing the joined forms
+     * catches that in both directions without a hand-maintained alias list.
+     *
+     * <p>Only applied to joined forms of six characters or more. Short tokens
+     * ("aws", "go", "c#") are matched exactly by {@link #containsPhrase} and
+     * are the ones where gluing neighbouring words together could invent a
+     * match that is not there.
+     */
+    private static boolean containsJoined(List<String> haystack, List<String> phrase) {
+        String target = singular(String.join("", phrase));
+        if (target.length() < MIN_JOINED_LENGTH) {
+            return false;
+        }
+        for (int size = 1; size <= MAX_JOIN_WINDOW; size++) {
+            for (int start = 0; start + size <= haystack.size(); start++) {
+                StringBuilder joined = new StringBuilder();
+                for (int offset = 0; offset < size; offset++) {
+                    joined.append(haystack.get(start + offset));
+                }
+                // Skip windows that cannot possibly match. The +1 matters:
+                // singular() strips at most one trailing "s", so "restapis" is
+                // still a match for the target "restapi" despite being longer.
+                if (joined.length() > target.length() + 1) {
+                    continue;
+                }
+                if (singular(joined.toString()).equals(target)) {
+                    return true;
+                }
             }
         }
         return false;

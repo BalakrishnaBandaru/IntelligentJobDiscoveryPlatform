@@ -17,7 +17,11 @@ services:
       # image's default data directory.
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      # Bound to the loopback address, not 0.0.0.0. A host tool (DBeaver, psql)
+      # still reaches it at localhost:5432, but other machines on the network
+      # cannot — which matters because the credentials are in .env.example, and
+      # this repo is public.
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +36,11 @@ services:
     image: adminer:latest
     container_name: jobdiscovery-adminer
     ports:
-      - "8081:8080"
+      # Loopback only, for the same reason as the db port above — Adminer is a
+      # full database client, so exposing it to the network hands out whatever
+      # the published credentials unlock. It talks to "db" over the compose
+      # network, so this binding only affects browser access from this machine.
+      - "127.0.0.1:8081:8080"
     depends_on:
       - db
     restart: unless-stopped

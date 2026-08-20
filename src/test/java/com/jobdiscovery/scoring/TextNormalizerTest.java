@@ -119,4 +119,52 @@ class TextNormalizerTest {
         assertFalse(TextNormalizer.isTruncated(null));
         assertFalse(TextNormalizer.isTruncated("   "));
     }
+
+    @Test
+    @DisplayName("a two-word skill matches a posting that closes up the space")
+    void matchesClosedUpSpelling() {
+        // The real case: a Mastercard title reading "Java, Spring, Springboot,
+        // Kafka" scored Spring Boot as missing.
+        assertTrue(TextNormalizer.contains(
+                TextNormalizer.tokenize("Lead Software Engineer - Java, Spring, Springboot, Kafka"),
+                "Spring Boot"));
+    }
+
+    @Test
+    @DisplayName("a closed-up skill matches a posting that spaces it out")
+    void matchesSpacedOutSpelling() {
+        // The same tolerance has to work the other way round, or it just moves
+        // the blind spot from the posting to the profile.
+        assertTrue(TextNormalizer.contains(
+                TextNormalizer.tokenize("building services with Spring Boot"), "Springboot"));
+        assertTrue(TextNormalizer.contains(
+                TextNormalizer.tokenize("a Java Script front end"), "JavaScript"));
+    }
+
+    @Test
+    @DisplayName("joined matching still respects a plural s")
+    void joinedMatchingToleratesPlurals() {
+        assertTrue(TextNormalizer.contains(
+                TextNormalizer.tokenize("designing REST APIs all day"), "RestAPI"));
+    }
+
+    @Test
+    @DisplayName("short tokens are never glued together into a false match")
+    void doesNotGlueShortTokens() {
+        // "go" must not be found by joining "g" and "o", and a posting about
+        // Java must not satisfy a JavaScript requirement.
+        assertFalse(TextNormalizer.contains(TextNormalizer.tokenize("a g o sequence"), "Go"));
+        assertFalse(TextNormalizer.contains(
+                TextNormalizer.tokenize("a Java backend role"), "JavaScript"));
+    }
+
+    @Test
+    @DisplayName("gluing does not reach across unrelated words")
+    void doesNotGlueUnrelatedWords() {
+        // "Spring Boot" must not be satisfied by "spring" and "boot" appearing
+        // in unrelated places, which is what containsPhrase already guards; the
+        // joined form must not reopen that hole.
+        assertFalse(TextNormalizer.contains(
+                TextNormalizer.tokenize("spring intake, safety boot required"), "Spring Boot"));
+    }
 }

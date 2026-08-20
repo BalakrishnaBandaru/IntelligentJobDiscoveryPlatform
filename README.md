@@ -154,12 +154,19 @@ in [`application.yml`](src/main/resources/application.yml):
 | `preferredCompany` | 5 | Bonus when the employer is one the candidate named |
 | `recency` | 5 | How recently the posting went up |
 
-Three design decisions worth calling out:
+Four design decisions worth calling out:
 
 - **Matching is token-based, not substring-based.** A `contains("java")` check
   matches "JavaScript" and would score a front-end role as a Java match. Skills
   are compared as token sequences, so phrases match as phrases and `Java` never
   matches `JavaScript`.
+- **Word breaks are ignored, in both directions.** `Spring Boot` matches a
+  posting that writes "Springboot", and a profile listing `Springboot` matches
+  one that writes "Spring Boot" — the joined forms are compared, so no alias
+  list needs maintaining. It also handles hyphenated compounds, so "Back-End"
+  matches `backend`. Guarded to joined forms of six characters or more, so short
+  tokens (`aws`, `go`, `c#`) can never be manufactured by gluing neighbouring
+  words together.
 - **A dimension with nothing to judge drops out** rather than scoring zero. If
   the profile names no preferred companies, that weight leaves the divisor
   instead of capping every job at 95.

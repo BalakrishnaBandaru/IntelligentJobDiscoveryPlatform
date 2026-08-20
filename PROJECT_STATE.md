@@ -112,7 +112,7 @@ been compiled before this run.
 | Check | Result |
 |---|---|
 | Gradle build in container | ✅ BUILD SUCCESSFUL |
-| Full test suite | ✅ **39 tests, 0 failures, 0 errors** (1 context-load + 38 scoring)<br>later **48** after the truncation fix added 9 |
+| Full test suite | ✅ **39 tests, 0 failures, 0 errors** (1 context-load + 38 scoring)<br>later **48** (truncation fix, +9) then **53** (joined-spelling fix, +5) |
 | App boot | ✅ Healthy, DB UP, no exceptions |
 | Flyway | ✅ Schema at v3, all migrations `success = t` |
 | `GET /api/matches` (no profile) | ✅ 404 `profile_not_found` |
@@ -233,11 +233,21 @@ skills dimension did **not** — see the truncation issue below.
   denominator shrinks when text is truncated, which is every row today) but does
   not remove it: with full descriptions the old behaviour returns. A real fix
   would score the *importance* of the matched skills rather than a flat fraction.
-- **Multi-word skills do not match their closed-up spelling.** A profile skill of
-  `Spring Boot` (two tokens) does not match a title writing "Springboot" as one
-  word — seen on the Mastercard listing, which names Spring Boot in its title and
-  still scored it missing. Token-based phrase matching cannot bridge that alone;
-  it needs an alias list like `LOCATION_ALIASES` provides for cities.
+- **Multi-word skills vs. their closed-up spelling (FIXED 2026-08-20).** A
+  profile skill of `Spring Boot` did not match a title writing "Springboot" as
+  one word — the Mastercard listing named Spring Boot *in its own title* and
+  still scored it missing. `TextNormalizer.containsJoined()` now compares the
+  joined forms in **both** directions ("Spring Boot" ↔ "Springboot"), so no
+  hand-maintained alias list is needed. Guarded to joined forms of six
+  characters or more, so short tokens ("aws", "go", "c#") cannot be invented by
+  gluing neighbours together, and it never reopens the phrase-adjacency hole —
+  "spring intake, safety boot" still does not match Spring Boot.
+
+  **Effect:** 4 listings improved, **0 got worse**. Mastercard's Lead Software
+  Engineer went 54.7 → 60.1 (#17 → #11; #30 → #11 counting the truncation fix
+  too). A bonus nobody planned: it also fixes *hyphenated* compounds, because
+  "Back-End" tokenises to `back` + `end` — "Java Engineer (Back-End &
+  Microservices)" now matches the profile keyword `backend`.
 - **No salary in `JobListing` — salary is NOT scored.** The original Phase 5 plan
   listed "salary when present" as a dimension, but the entity has no salary
   column: Adzuna returns `salary_min`/`salary_max` and the mapper drops them.
@@ -271,6 +281,37 @@ skills dimension did **not** — see the truncation issue below.
   microsecond precision (`...266480Z`). Same instant, different digits. Confirmed
   2026-08-20 that upsert semantics are correct — id and `createdAt` *are*
   preserved; only the echoed precision differs.
+- **🔴 The Postgres password is still the published placeholder.** `.env`'s
+  `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` are byte-identical to the
+  committed `.env.example`, and **the repo is now public**. The host port
+  bindings for db and Adminer were narrowed to `127.0.0.1` on 2026-08-20, which
+  removes the network exposure, but the credential itself is unchanged. Rotating
+  it needs two steps in this order, because `POSTGRES_PASSWORD` is only read when
+  the data volume is first initialised — changing `.env` alone locks the app out
+  of its own data:
+
+  ```bash
+  docker exec -it jobdiscovery-db psql -U jobdiscovery -d jobdiscovery -c "ALTER USER jobdiscovery WITH PASSWORD 'new-strong-password';"
+  # then edit POSTGRES_PASSWORD in .env to the same value, and:
+  docker compose up -d --force-recreate app
+  ```
+
+  The agent attempted this and was **blocked by the permission classifier** —
+  rewriting a secrets file plus rotating a database credential is exactly what it
+  guards. Left for the user to run by hand.
+- **Docker builds intermittently fail to reach `services.gradle.org`** on this
+  network (`SocketTimeoutException` downloading `gradle-9.5.1-bin.zip`), which
+  kills any image build whose cache has been pruned. Workaround that does not
+  need the Gradle distribution — run the tests in the *existing* image with the
+  sources mounted over it:
+
+  ```bash
+  MSYS_NO_PATHCONV=1 docker compose --profile test run --rm -v "E:\GitPersonalProject\IntelligentJobDiscoveryPlatform\src:/workspace/src" test ./gradlew --no-daemon cleanTest test
+  ```
+
+  Do **not** add `--offline`: the test dependencies are not baked into the image
+  (the image build runs `bootJar`, not `test`), so they still come from Maven
+  Central on every run.
 - **`powershell.exe` is blocked by group policy on this machine** (work laptop),
   so the agent cannot run `scripts/smoke-test.ps1` itself — both a direct spawn
   and a `cmd.exe` wrapper are refused. **The user must run the smoke test by
