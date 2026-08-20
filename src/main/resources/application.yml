@@ -105,6 +105,14 @@ scoring:
   # country (Jooble reports "India" for every result, since it cannot geocode
   # Indian cities) is scored as location-unknown rather than location-wrong.
   home-country: ${SCORING_HOME_COUNTRY:India}
+  # Both sources return a preview, not the posting: Adzuna caps the description
+  # at 500 characters ("…") and Jooble's field is a "snippet" ("...&nbsp;"). All
+  # 57 stored rows are truncated. So a skill the text never mentions is usually
+  # evidence the text ran out, not evidence the job does not want it — this is
+  # how much an unmatched skill still counts against a job in that case.
+  # 1.0 restores the old behaviour (treat a preview like full text); 0.0 ignores
+  # unmatched skills entirely. Full descriptions are never discounted.
+  truncated-miss-weight: ${SCORING_TRUNCATED_MISS_WEIGHT:0.5}
   weights:
     # Skill overlap between the profile and the posting text.
     skills: ${SCORING_WEIGHT_SKILLS:35}

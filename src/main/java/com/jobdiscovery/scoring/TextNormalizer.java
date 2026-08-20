@@ -29,8 +29,39 @@ public final class TextNormalizer {
      */
     private static final Pattern NON_TOKEN = Pattern.compile("[^a-z0-9+#]+");
 
+    /**
+     * Trailing whitespace and HTML entities, stripped before looking for a
+     * truncation marker. Jooble ends its snippets {@code "...&nbsp;"}, so the
+     * marker is not the last thing in the string.
+     */
+    private static final Pattern TRAILING_FILLER =
+            Pattern.compile("(?:\\s|&(?:[a-zA-Z]+|#\\d+);)+$");
+
     private TextNormalizer() {
         // Static utility.
+    }
+
+    /**
+     * True when the source cut this text short rather than returning all of it.
+     *
+     * <p>Both live sources return a <i>preview</i>, not the posting: Adzuna caps
+     * its description at 500 characters and ends it with "…", and Jooble's field
+     * is literally named {@code snippet} and ends "...&nbsp;". Every one of the
+     * 57 stored rows is truncated.
+     *
+     * <p>This matters because it changes what a <i>missing</i> skill means. In
+     * full text, a skill that never appears is good evidence the job does not
+     * want it. In a 500-character preview it is mostly evidence that the text
+     * ran out — the same distinction the location dimension already draws
+     * between "not a preferred city" and "country-level only, so unknown".
+     * {@link JobScoringService} discounts unmatched skills accordingly.
+     */
+    public static boolean isTruncated(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        String withoutFiller = TRAILING_FILLER.matcher(raw).replaceAll("");
+        return withoutFiller.endsWith("…") || withoutFiller.endsWith("...");
     }
 
     /** Lower-cased, HTML-stripped, punctuation-collapsed text. Null-safe. */

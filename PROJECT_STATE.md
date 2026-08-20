@@ -4,7 +4,7 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-20._
+> _Last updated: 2026-08-20 (second session)._
 
 ---
 
@@ -13,9 +13,8 @@
 **Phase 5a — Deterministic rule engine — DONE and VERIFIED (2026-08-20).**
 Built 2026-08-19 without ever being compiled (Docker Desktop was down that whole
 session); verified 2026-08-20 against a full rebuild — see the table below.
-Next up: **Phase 5b — LLM match explanations**, and a **weight-tuning pass**
-(the first real ranking exposed a description-truncation problem — see Known
-issues).
+The description-truncation problem that the first real ranking exposed is now
+**fixed** (see below). Next up: **Phase 5b — LLM match explanations**.
 
 ---
 
@@ -77,7 +76,7 @@ and a `scoring.weights.*` block in `application.yml`.
 
 | Dimension | Weight | Notes |
 |---|---:|---|
-| skills | 35 | Token-based; a title hit adds +0.15 |
+| skills | 35 | Token-based; a title hit adds +0.15; misses discounted on truncated text |
 | seniority | 25 | Stated years beat the title-implied level |
 | location | 20 | City aliases + remote/hybrid |
 | keywords | 10 | Profile keywords beyond skills |
@@ -113,7 +112,7 @@ been compiled before this run.
 | Check | Result |
 |---|---|
 | Gradle build in container | ✅ BUILD SUCCESSFUL |
-| Full test suite | ✅ **39 tests, 0 failures, 0 errors** (1 context-load + 38 scoring) |
+| Full test suite | ✅ **39 tests, 0 failures, 0 errors** (1 context-load + 38 scoring)<br>later **48** after the truncation fix added 9 |
 | App boot | ✅ Healthy, DB UP, no exceptions |
 | Flyway | ✅ Schema at v3, all migrations `success = t` |
 | `GET /api/matches` (no profile) | ✅ 404 `profile_not_found` |
@@ -196,34 +195,49 @@ skills dimension did **not** — see the truncation issue below.
   Phase 5a engine now penalises over-qualification heavily, so those roles rank
   low — but they are still being *fetched*. Widening `FETCH_KEYWORDS`
   (senior / lead / staff) is still open.
-- **🔴 Adzuna descriptions are truncated to exactly 500 characters, which
-  starves the heaviest scoring dimension.** Found 2026-08-20 on the first real
-  ranking. Every one of the 42 Adzuna rows has `length(description) = 500`
-  exactly (Jooble averages 313) — the API returns a snippet, not the posting.
-  The `skills` dimension is weighted 35, the highest of the six, but it is
-  matching against that snippet. Across all 57 listings:
+- **Truncated postings starving the skills dimension (FIXED 2026-08-20).**
+  Found on the first real ranking, fixed the same day. **Every one of the 57
+  stored rows is a preview, not a posting** — Adzuna caps its description at
+  exactly 500 characters and ends it `…`; Jooble's field is literally named
+  `snippet` and ends `...&nbsp;`. The `skills` dimension is weighted 35, the
+  heaviest of the six, and `matched / total profile skills` was measuring how
+  soon the text ran out rather than how well the job fits: `Docker` and
+  `PostgreSQL` matched **0 of 57** rows, `Kafka` and `MySQL` 1 each, and `Java`
+  only 31/57 on a search whose keyword *was* "java developer".
 
-  | Skills matched (of 8) | Listings |
-  |---:|---:|
-  | 0 | 25 |
-  | 1 | 20 |
-  | 2 | 11 |
-  | 4 | 1 |
+  **Fix:** a skill absent from *truncated* text is now scored as **unknown, not
+  absent** — the same distinction the location dimension already draws for a
+  country-only location (`fe17ace`). `TextNormalizer.isTruncated()` detects the
+  marker (tolerating Jooble's trailing `&nbsp;`), and unmatched skills are
+  discounted by `scoring.truncated-miss-weight` (default `0.5`, env
+  `SCORING_TRUNCATED_MISS_WEIGHT`). Full descriptions are untouched, so behaviour
+  is unchanged for any future source returning complete text, and `1.0` restores
+  the old ratio exactly.
 
-  No listing matches more than **4 of 8** skills. `Docker` and `PostgreSQL`
-  match **0/57**; `Kafka` and `MySQL` match 1; even `Java` matches only 31/57 —
-  on a search whose keyword *was* "java developer". So a low skills score
-  currently means "the snippet was cut off", not "the job does not want this
-  skill", and the top score is capped around 70. Fix directions, in order of
-  value: (a) fetch the full description from the posting URL, or find a fuller
-  field in the Adzuna response; (b) score skills against title + snippet but cap
-  the *penalty* for unmatched skills when the description is known-truncated;
-  (c) reduce the skills weight until (a) is possible. **Do this before tuning
-  any other weight** — the current numbers are measuring truncation.
-- **Skills scoring divides by the profile's skill count**, so listing more skills
-  lowers every score. An 8-skill profile is structurally penalised against a
-  3-skill one. Compounds the truncation issue above. Consider scoring against the
-  *matched* skills' importance rather than a flat fraction.
+  **Effect on the real 57 rows:** top score 70.5 → 76.7, median 49.2 → 50.5.
+  Listings matching **zero** skills did not move at all (median 43.5 before and
+  after) — the discount cannot invent a match. Genuine matches that were buried
+  came up: Mastercard's "Lead Software Engineer - Java, Spring, Springboot,
+  Kafka" went #30 → #17, and two Java lead roles gained 13 places each. The
+  listings that *fell* in rank — QA roles, "Sr Mgr - IT Appl Development" — all
+  kept their exact scores and only dropped because real Java roles overtook
+  them. That is the intended shape of the change.
+
+  **Still worth doing later:** fetching the real posting text would beat
+  discounting for it. Whether Adzuna exposes a fuller field, or whether it needs
+  following `redirect_url` to the employer site, is **unverified** — that was not
+  investigated, and scraping through the redirector would be fragile.
+- **Skills scoring still divides by the profile's skill count**, so listing more
+  skills lowers every score — an 8-skill profile is structurally penalised
+  against a 3-skill one. The truncation fix above *mitigates* this (the
+  denominator shrinks when text is truncated, which is every row today) but does
+  not remove it: with full descriptions the old behaviour returns. A real fix
+  would score the *importance* of the matched skills rather than a flat fraction.
+- **Multi-word skills do not match their closed-up spelling.** A profile skill of
+  `Spring Boot` (two tokens) does not match a title writing "Springboot" as one
+  word — seen on the Mastercard listing, which names Spring Boot in its title and
+  still scored it missing. Token-based phrase matching cannot bridge that alone;
+  it needs an alias list like `LOCATION_ALIASES` provides for cities.
 - **No salary in `JobListing` — salary is NOT scored.** The original Phase 5 plan
   listed "salary when present" as a dimension, but the entity has no salary
   column: Adzuna returns `salary_min`/`salary_max` and the mapper drops them.
@@ -284,13 +298,12 @@ docker compose --profile test run --rm test   # 39 tests (needs the db — see a
 .\scripts\smoke-test.ps1                  # run this yourself; agent is blocked by group policy
 ```
 
-**First: fix the description truncation, then tune the weights.** The first real
-ranking showed the `skills` dimension (weight 35, the heaviest) is scoring
-against a 500-character Adzuna snippet rather than the posting — `Docker` and
-`PostgreSQL` match 0 of 57 rows. See the red item under Known issues. Tuning any
-weight before fixing this is tuning against an artefact.
+**The truncation blocker is cleared** — weights can now be tuned against
+numbers that mean something. `scoring.truncated-miss-weight` (default `0.5`) is
+itself the first knob worth trying; the weights have never been tuned against
+real output.
 
-**Then Phase 5b — LLM match explanations:**
+**Next: Phase 5b — LLM match explanations:**
 
 1. **Decide the provider** (Spring AI vs direct REST via `RestClient`) and add
    the key to `.env` — still unconfigured.

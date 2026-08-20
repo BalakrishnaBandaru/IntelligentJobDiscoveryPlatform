@@ -154,7 +154,7 @@ in [`application.yml`](src/main/resources/application.yml):
 | `preferredCompany` | 5 | Bonus when the employer is one the candidate named |
 | `recency` | 5 | How recently the posting went up |
 
-Two design decisions worth calling out:
+Three design decisions worth calling out:
 
 - **Matching is token-based, not substring-based.** A `contains("java")` check
   matches "JavaScript" and would score a front-end role as a Java match. Skills
@@ -163,6 +163,14 @@ Two design decisions worth calling out:
 - **A dimension with nothing to judge drops out** rather than scoring zero. If
   the profile names no preferred companies, that weight leaves the divisor
   instead of capping every job at 95.
+- **A missing skill in a truncated posting is *unknown*, not *absent*.** Neither
+  source returns the real posting — Adzuna caps its description at 500 characters
+  and Jooble's field is a `snippet`, so every stored row is a preview. Counting
+  the unmentioned skills as full misses measured how soon the text ran out rather
+  than how well the job fits. Unmatched skills are therefore discounted when the
+  text is truncated, controlled by `scoring.truncated-miss-weight` (default
+  `0.5`; set `1.0` to treat previews as complete text). Matching zero skills
+  still scores zero — the discount never invents a match.
 
 Each match returns its full breakdown — per-dimension score, matched skills,
 missing skills, the seniority read off the title, and any experience range found

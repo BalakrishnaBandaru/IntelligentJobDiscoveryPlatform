@@ -23,7 +23,20 @@ public record ScoringProperties(
          * this country is treated as location-unknown rather than
          * location-wrong — see JobScoringService.scoreLocation.
          */
-        @DefaultValue("India") String homeCountry) {
+        @DefaultValue("India") String homeCountry,
+        /*
+         * How much an unmatched skill counts against a job when the posting text
+         * was truncated by the source. 1.0 would treat a preview exactly like
+         * full text — which is what produced the original problem, where Docker
+         * and PostgreSQL matched 0 of 57 rows not because the jobs did not want
+         * them but because the description ran out at 500 characters. 0.0 would
+         * ignore unmatched skills entirely and let a single hit score full
+         * marks. The default sits between: a missing skill in a preview is half
+         * the evidence it would be in the real posting.
+         *
+         * Only applies to truncated text; full descriptions are unaffected.
+         */
+        @DefaultValue("0.5") double truncatedMissWeight) {
 
     /**
      * @param skills           overlap between profile skills and the posting

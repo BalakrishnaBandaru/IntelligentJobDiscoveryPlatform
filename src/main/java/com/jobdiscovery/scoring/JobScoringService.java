@@ -113,8 +113,13 @@ public class JobScoringService {
         ExperienceRequirement required =
                 ExperienceRequirement.parse(listing.getTitle(), listing.getDescription());
 
+        // Both live sources return a preview rather than the posting, so an
+        // unmatched skill here is usually "the text ran out", not "the job does
+        // not want it". scoreSkills discounts the misses when this is true.
+        boolean truncated = TextNormalizer.isTruncated(listing.getDescription());
+
         List<ScoreComponent> components = List.of(
-                scoreSkills(matchedSkills, missingSkills, titleTokens),
+                scoreSkills(matchedSkills, missingSkills, titleTokens, truncated),
                 scoreSeniority(profile, jobSeniority, required),
                 scoreLocation(listing, profile, textTokens),
                 scoreKeywords(profile, matchedKeywords),
@@ -155,15 +160,26 @@ public class JobScoringService {
 
     // --- dimensions --------------------------------------------------------
 
+    /**
+     * @param truncated whether the posting text was cut short by the source, in
+     *                  which case an unmatched skill is discounted — see
+     *                  {@link TextNormalizer#isTruncated}
+     */
     private ScoreComponent scoreSkills(List<String> matched, List<String> missing,
-                                       List<String> titleTokens) {
+                                       List<String> titleTokens, boolean truncated) {
         double weight = properties.weights().skills();
         int total = matched.size() + missing.size();
         if (total == 0) {
             return ScoreComponent.notApplicable("skills", weight, "profile lists no skills");
         }
 
-        double value = (double) matched.size() / total;
+        // Dividing by the profile's whole skill list assumes the text had a fair
+        // chance to mention every one of them. A 500-character preview did not,
+        // so each unmatched skill counts for less when the text is truncated.
+        // At the 1.0 default this is exactly the old matched/total ratio.
+        double missWeight = truncated ? properties.truncatedMissWeight() : 1.0;
+        double denominator = matched.size() + missing.size() * missWeight;
+        double value = denominator <= 0 ? 0.0 : matched.size() / denominator;
 
         // A skill named in the title is a far stronger signal than one buried in
         // the description, so a title hit lifts an otherwise partial match.
@@ -179,6 +195,10 @@ public class JobScoringService {
         if (titleSkill != null) {
             value += 0.15;
             detail += "; title names " + titleSkill;
+        }
+        if (truncated && !missing.isEmpty()) {
+            detail += "; posting text is truncated, so the " + missing.size()
+                    + " unmatched count as unknown rather than absent";
         }
         return ScoreComponent.of("skills", weight, value, detail);
     }

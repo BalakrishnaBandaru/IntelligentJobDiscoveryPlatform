@@ -86,4 +86,37 @@ class TextNormalizerTest {
         assertFalse(TextNormalizer.contains(tokens, null));
         assertFalse(TextNormalizer.contains(tokens, "  "));
     }
+
+    @Test
+    @DisplayName("detects Adzuna's truncation marker (a trailing ellipsis character)")
+    void detectsAdzunaTruncation() {
+        assertTrue(TextNormalizer.isTruncated(
+                "Design and build backend services in Java and Spring Boot, working with…"));
+    }
+
+    @Test
+    @DisplayName("detects Jooble's truncation marker behind a trailing &nbsp;")
+    void detectsJoobleTruncation() {
+        // Jooble's snippets end "...&nbsp;", so the marker is not the last thing
+        // in the string — the entity has to be stripped before checking.
+        assertTrue(TextNormalizer.isTruncated(
+                "Experience in Java, Spring/ Spring Boot,...&nbsp;"));
+        assertTrue(TextNormalizer.isTruncated("Working experience with... &nbsp; \r\n"));
+    }
+
+    @Test
+    @DisplayName("complete text is not reported as truncated")
+    void completeTextIsNotTruncated() {
+        assertFalse(TextNormalizer.isTruncated(
+                "We are hiring a Java developer with Spring Boot and Kafka experience."));
+        // A sentence that merely contains an ellipsis mid-string is complete.
+        assertFalse(TextNormalizer.isTruncated("Java, Spring… and more, all in one team."));
+    }
+
+    @Test
+    @DisplayName("null or blank text is not truncated")
+    void blankTextIsNotTruncated() {
+        assertFalse(TextNormalizer.isTruncated(null));
+        assertFalse(TextNormalizer.isTruncated("   "));
+    }
 }

@@ -23,8 +23,14 @@ class JobScoringServiceTest {
 
     // The repository and profile service are only used by rank(); score() is
     // pure, so they are not needed here.
-    private final JobScoringService service = new JobScoringService(null, null,
-            new ScoringProperties(new ScoringProperties.Weights(35, 25, 20, 10, 5, 5), "India"));
+    private final JobScoringService service = serviceWith(0.5);
+
+    /** A service whose only difference is how hard truncated misses count. */
+    private static JobScoringService serviceWith(double truncatedMissWeight) {
+        return new JobScoringService(null, null, new ScoringProperties(
+                new ScoringProperties.Weights(35, 25, 20, 10, 5, 5), "India",
+                truncatedMissWeight));
+    }
 
     // --- fixtures ----------------------------------------------------------
 
@@ -269,5 +275,83 @@ class JobScoringServiceTest {
                 candidate, NOW);
 
         assertEquals(1.0, component(scored, "location").value(), 0.01);
+    }
+
+    // --- truncated postings ------------------------------------------------
+
+    /** Four skills, of which only Java appears in the text under test. */
+    private CandidateProfile fourSkillCandidate() {
+        return profile(List.of("Java", "Kafka", "Docker", "PostgreSQL"), 10,
+                List.of("Bangalore"), List.of(), List.of());
+    }
+
+    @Test
+    @DisplayName("a skill missing from a truncated posting counts as unknown, not absent")
+    void truncatedMissesAreDiscounted() {
+        // Same text twice; only the truncation marker differs. Both mention Java
+        // and none of the other three skills.
+        String complete = "We need a Java developer. 8+ years of experience.";
+        String truncated = "We need a Java developer. 8+ years of experience and…";
+
+        double completeValue = component(service.score(
+                job("Developer", "Acme", "Bangalore", complete, NOW),
+                fourSkillCandidate(), NOW), "skills").value();
+        double truncatedValue = component(service.score(
+                job("Developer", "Acme", "Bangalore", truncated, NOW),
+                fourSkillCandidate(), NOW), "skills").value();
+
+        // Full text: 1 of 4 = 0.25. Truncated at the 0.5 default the three
+        // unmatched misses count as 1.5, so 1 / (1 + 1.5) = 0.4.
+        assertEquals(0.25, completeValue, 0.01);
+        assertEquals(0.40, truncatedValue, 0.01);
+        assertTrue(truncatedValue > completeValue,
+                "a truncated posting must not be punished for text it never showed");
+    }
+
+    @Test
+    @DisplayName("truncation never invents a match: zero skills still scores zero")
+    void truncationDoesNotRescueAZeroMatch() {
+        JobScore scored = service.score(
+                job("PHP Developer", "Acme", "Bangalore",
+                        "We need a PHP developer with 10 years of experience and…", NOW),
+                fourSkillCandidate(), NOW);
+
+        assertEquals(0.0, component(scored, "skills").value(), 0.01);
+    }
+
+    @Test
+    @DisplayName("setting truncated-miss-weight to 1.0 restores the old ratio")
+    void weightOfOneRestoresPreviousBehaviour() {
+        JobScore scored = serviceWith(1.0).score(
+                job("Developer", "Acme", "Bangalore",
+                        "We need a Java developer. 8+ years of experience and…", NOW),
+                fourSkillCandidate(), NOW);
+
+        assertEquals(0.25, component(scored, "skills").value(), 0.01);
+    }
+
+    @Test
+    @DisplayName("a truncated posting says so in its breakdown")
+    void truncationIsExplainedInTheBreakdown() {
+        JobScore scored = service.score(
+                job("Developer", "Acme", "Bangalore",
+                        "We need a Java developer. 8+ years of experience and…", NOW),
+                fourSkillCandidate(), NOW);
+
+        assertTrue(component(scored, "skills").detail().contains("truncated"),
+                "the breakdown must explain why the misses were discounted");
+    }
+
+    @Test
+    @DisplayName("a truncated posting matching every skill is not pushed past a full match")
+    void truncationCannotExceedAFullMatch() {
+        CandidateProfile candidate = profile(List.of("Java"), 10, List.of("Bangalore"),
+                List.of(), List.of());
+        JobScore scored = service.score(
+                job("Developer", "Acme", "Bangalore",
+                        "We need a Java developer. 8+ years of experience and…", NOW),
+                candidate, NOW);
+
+        assertEquals(1.0, component(scored, "skills").value(), 0.01);
     }
 }
