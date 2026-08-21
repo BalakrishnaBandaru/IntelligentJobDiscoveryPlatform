@@ -4,7 +4,7 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-20 (second session)._
+> _Last updated: 2026-08-21._
 
 ---
 
@@ -13,12 +13,13 @@
 **Phase 5a — Deterministic rule engine — DONE and VERIFIED (2026-08-20).**
 Built 2026-08-19 without ever being compiled (Docker Desktop was down that whole
 session); verified 2026-08-20 against a full rebuild — see the table below.
-**Phase 5b — LLM match explanations — BUILT and WIRED (2026-08-20), NOT YET
-CALLED LIVE.** The truncation and word-break problems the first real ranking
-exposed are both fixed. `GET /api/matches?explain=true` is in place and the
-unconfigured path is verified, but **no request has ever reached the Anthropic
-API** — the user is adding `ANTHROPIC_API_KEY` themselves. Next up: set the key,
-make the first live call, then **Phase 6 — Telegram notifications**.
+**Phase 5b — match explanations — DONE and RUNNING LOCALLY (2026-08-21).**
+Three tiers: a local Ollama model, the Anthropic API, and a deterministic
+templated explainer underneath both. **Verified end to end against the local
+model** — real explanations for the real 57 rows. The Claude tier remains
+unexercised (the account has no credit; a Pro subscription does not fund the
+API), but it is no longer on the critical path. Next up: **Phase 6 — Telegram
+notifications**.
 
 ---
 
@@ -44,8 +45,9 @@ make the first live call, then **Phase 6 — Telegram notifications**.
 - [x] **Phase 5a — Deterministic rule engine** — **DONE (verified 2026-08-20).**
       `GET /api/matches` ranks stored listings against the profile across six
       weighted dimensions. See below.
-- [x] **Phase 5b — LLM match explanations** — **BUILT 2026-08-20, no live call yet.**
-      `GET /api/matches?explain=true`. See below.
+- [x] **Phase 5b — match explanations** — **DONE (verified 2026-08-21).**
+      `GET /api/matches?explain=true`, three tiers (ollama / claude / templated).
+      Verified against the local model. See below.
 - [ ] Phase 6 — Telegram notifications *(next)*
 - [ ] Phase 7 — Application tracking
 - [ ] Phase 8 — Demo polish (Docker/Adminer already done; Swagger, README, screenshots)
@@ -153,81 +155,71 @@ location and recency all behaved as designed; the over-qualification penalty and
 the country-only location fix (`fe17ace`) both fired correctly on real rows. The
 skills dimension did **not** — see the truncation issue below.
 
-### Phase 5b — LLM match explanations (2026-08-20)
+### Phase 5b — match explanations (2026-08-20, reworked 2026-08-21)
 
-New package `com.jobdiscovery.explain`, plus `&explain=true` on `/api/matches`
-and an `explanation.*` block in `application.yml`.
+New package `com.jobdiscovery.explain`, `&explain=true` on `/api/matches`, and
+an `explanation.*` block in `application.yml`.
+
+**Three tiers, tried in order.** Every response reports which answered, in
+`explanationSource`:
+
+| Tier | `EXPLANATION_PROVIDER` | Cost | State |
+|---|---|---|---|
+| Local model | `ollama` | Free | ✅ verified end to end 2026-08-21 |
+| Anthropic API | `claude` | Per token | ⚠️ built, never succeeded — no account credit |
+| Templated | *(fallback)* | Free | ✅ verified; the default |
+
+**Why the default is `none`.** A fresh clone gets working explanations with no
+key, no model download and no account — the templated explainer answers. It is
+also the safety net: a stopped Ollama container or an exhausted balance degrades
+the prose instead of 502-ing the shortlist, because the ranking never depended
+on a model. `EXPLANATION_FALLBACK=error` opts out.
 
 **Provider decision (user, 2026-08-20): direct REST via `RestClient`**, not
-Spring AI. Chosen so the client is the same shape as `AdzunaClient` /
-`JoobleClient` / `ArbeitnowClient` and adds no dependency. Note an official Java
-SDK does exist (`com.anthropic:anthropic-java`) — this was a deliberate choice,
-not an oversight, and is the thing to revisit if the client grows.
+Spring AI, so every client in the project has the same shape and no dependency
+was added. An official Java SDK does exist (`com.anthropic:anthropic-java`) —
+a deliberate choice, and the thing to revisit if the client grows.
 
-| Setting | Default | Why |
-|---|---|---|
-| `EXPLANATION_ENABLED` | `false` | App boots and the smoke test passes with no key at all |
-| `EXPLANATION_MODEL` | `claude-opus-5` | Current default model; $5/$25 per 1M in/out |
-| `EXPLANATION_EFFORT` | `low` | Evidence arrives pre-computed; the model only phrases it |
-| `EXPLANATION_MAX_MATCHES` | `5` | Each explained match is a separate billed call |
+**Why a 3B model is defensible here.** The rule engine does the judging; the
+model only writes it up. That is the whole reason a laptop-sized model is a
+credible provider — the hard part was never delegated to it.
 
 Design points worth remembering:
 
-- **The model is never shown the posting.** It gets the score and the evidence
-  `JobScore` already carries — matched/missing skills, seniority read, stated
-  experience range, per-dimension breakdown — and nothing else. That is what
-  makes "it explains the number rather than forming its own view" true in code
-  rather than just in the prompt. A test asserts the prompt has no posting text.
-- **The system prompt tells it a missing skill means "not mentioned".** Given
-  the truncation finding above, saying "the job does not require it" would be an
-  outright falsehood; the prompt forbids it explicitly.
-- **`JobScore.withExplanation()` returns a copy.** The scored result stays
-  immutable, so an explanation can never be mistaken for an input to the score.
-- **Explanations are cached in memory, keyed by job *and score*.** Scoring is
-  recomputed per request, so without this a second call re-pays for the same
-  sentences. Keying on the score means re-tuning a weight expires the entry by
-  itself — no invalidation logic to get wrong. Lost on restart, which is fine.
-- **Refusal handling.** A refusal arrives as HTTP 200 with no usable content, so
-  `stop_reason` is checked before the content is read. Server-side refusal
-  fallbacks are enabled (`server-side-fallback-2026-07-01`).
-- **Unconfigured is a first-class state**, not a crash: `503
-  explanations_not_configured` with a message naming the exact env vars to set.
-  The ranking never depends on the LLM being reachable.
+- **No tier is shown the posting.** Each gets the evidence `JobScore` already
+  carries. A test asserts the prompt contains no posting text, so "explains the
+  number rather than forming its own view" is enforced in code, not just hoped
+  for in the prompt.
+- **The prompt is written for the weakest model that will run it**, and three
+  details were each earned by watching llama3.2:3b get it wrong:
+  1. *Second person as a prohibition.* "Address the candidate as you" produced
+     "This candidate…" every time. Listing the banned phrasings fixed it — then
+     it opened every note with a literal "You,", so that is banned too.
+  2. *An unrelated example.* A relevant one was lifted almost verbatim.
+  3. *Ratings, not arithmetic.* Shown "21.2 of 25 points" it reasoned about the
+     numbers and got it **backwards** — calling a 0.85 seniority score the thing
+     "pulling the match down". Dimensions now arrive pre-labelled STRONG /
+     MODERATE / WEAK, and the score is withheld entirely because the model kept
+     reciting it.
+- **`withExplanation()` returns a copy**, so an explanation can never be
+  mistaken for an input to the score.
+- **Model output is cached by job *and* score**; the template is not cached,
+  being cheap enough that caching would only add a way to be stale.
+- **Refusal handling (Claude tier).** A refusal is HTTP 200 with no usable
+  content, so `stop_reason` is checked before the content is read.
 
-**Tests: 61 passing** (8 new in `MatchExplainerTest`), none of which touch the
-network — `ClaudeClient` is subclassed with a recording stub, so what is tested
-is the prompt contract, the caching, and the cost cap.
+**Honest quality assessment (2026-08-21).** llama3.2:3b is factually
+constrained — it reports the ratings and does not overclaim on truncated text —
+but the prose is clunky, and **the templated tier arguably reads better**. The
+local model earns its place by being free and private, not by being good. A
+larger model or the Claude tier is a clear step up. Performance: ~12s per
+explanation warm on CPU, 0.36s fully cached, and a slow first call while the
+2GB model loads. Memory: Ollama sits at ~3.9GB of the VM's 7.6GB.
 
-**Verified 2026-08-20 without a key:** app boots, ranking unchanged, every match
-carries `explanation: null`, and `&explain=true` returns 503 with the actionable
-message.
-
-**First live attempt, 2026-08-20 — blocked on account credit, not on code.**
-The key was added to `.env` and `EXPLANATION_ENABLED=true` set. The request
-reached Anthropic and was rejected:
-
-```
-HTTP 400 invalid_request_error
-"Your credit balance is too low to access the Anthropic API.
- Please go to Plans & Billing to upgrade or purchase credits."
-```
-
-Confirmed by that round trip:
-
-| Check | Result |
-|---|---|
-| Key authenticates | ✅ `GET /v1/models/claude-opus-5` → 200 |
-| Model id `claude-opus-5` is real | ✅ 1M input / 128K output |
-| `effort: low` is a supported value | ✅ low/medium/high/xhigh/max all supported |
-| Adaptive thinking (we omit `thinking`) | ✅ `adaptive` supported, `enabled` **not** — so omitting it is right |
-| Our error path, end to end | ✅ 502 `explanation_upstream_error` with the upstream body surfaced verbatim, which is how the cause was identified in one look |
-
-**Still unverified — needs credit on the account:** the request *body* shape
-(a billing rejection may precede schema validation, so a 400 here does not
-clear it), the response parsing, and whether the explanations actually read
-well against evidence this thin. **Add credit at
-<https://console.anthropic.com/settings/billing>, then re-run the curl in
-Immediate next step.** No code change is expected to be needed.
+**Tests: 72 passing** (19 across `MatchExplainerTest` and
+`TemplatedExplainerTest`), none touching the network — the LLM tier is stubbed,
+so what is tested is the prompt contract, the caching, the cost cap, and that a
+provider failure degrades to the template.
 
 ---
 
@@ -425,20 +417,19 @@ numbers that mean something. `scoring.truncated-miss-weight` (default `0.5`) is
 itself the first knob worth trying; the weights have never been tuned against
 real output.
 
-**Next: add API credit, then make the first successful explanation call.** The
-key is already in `.env` and `EXPLANATION_ENABLED=true` is set; the app is
-recreated and the request reaches Anthropic. It fails only because the account
-has no credit — see the Phase 5b section above.
+**Next: Phase 6 — Telegram notifications.** Phase 5b is done; explanations run
+locally for free, so nothing is blocked.
 
-1. Add credit at <https://console.anthropic.com/settings/billing>.
-2. `curl "http://localhost:8080/api/matches?limit=3&explain=true"`
+Optional improvements to Phase 5b, in rough value order:
 
-Watch for: the request body being accepted (untested — the billing rejection may
-have short-circuited schema validation), `stop_reason`, and whether the
-explanations read well against evidence this thin, since every posting is a
-truncated preview. Then tune `EXPLANATION_EFFORT` and the system prompt.
-
-**Then Phase 6 — Telegram notifications.**
+1. **A better local model.** llama3.2:3b is factually fine but writes clumsily.
+   The VM has ~7.6GB and Ollama already uses ~3.9GB, so a 7B at Q4 is tight but
+   may fit — try `qwen2.5:7b` and compare, or try `qwen2.5:3b` as a
+   same-size alternative that may follow format instructions better.
+2. **Tune the weights.** Still never done against real output. Both blockers
+   that made it pointless (truncation, word-break matching) are now fixed.
+3. **The Claude tier**, if there is ever credit — it needs
+   `EXPLANATION_PROVIDER=claude` and a balance. The key in `.env` is valid.
 
 **Deferred idea — resume upload (discussed 2026-07-27).** Extract the profile
 from an uploaded PDF/DOCX (Apache PDFBox + Apache POI). Agreed to defer until
@@ -464,7 +455,8 @@ Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 | **Adzuna** | ✅ working | App ID + Key in `.env`; live fetch confirmed |
 | **Jooble** | ✅ working | Key in `.env`; returns India-wide results (city fallback) |
 | **Arbeitnow** | ⏸️ disabled | Integrated but off (`arbeitnow.enabled=false`); no useful filtering for this search |
-| **Anthropic** (Phase 5b) | ⚠️ key valid, **no credit** | Key in `.env`, `EXPLANATION_ENABLED=true`, auth confirmed via `/v1/models`. Calls fail with "credit balance is too low" until billing is topped up |
+| **Ollama** (Phase 5b) | ✅ working | Local, free, no key. `docker compose --profile llm up -d ollama` + `ollama pull llama3.2:3b`. Currently `EXPLANATION_PROVIDER=ollama` |
+| **Anthropic** (Phase 5b) | ⚠️ key valid, **no credit** | Key in `.env`; auth confirmed via `/v1/models`. Calls fail with "credit balance is too low". **A Claude Pro subscription does not fund the API** — they are separately billed products. Not on the critical path now that Ollama works |
 | **Telegram bot** (Phase 6) | ❌ not created | Create via BotFather at Phase 6 |
 
 ---

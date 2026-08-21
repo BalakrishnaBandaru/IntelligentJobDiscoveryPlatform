@@ -428,26 +428,31 @@ try {
                 Write-Host "         seniority: $($top.jobSeniority); matched skills: $(@($top.matchedSkills) -join ', ')" -ForegroundColor DarkGray
             }
 
-            # Phase 5b: every match carries the explanation field, null until
-            # an explanation is asked for and the API key is configured.
-            Assert-That -Name 'Matches carry an explanation field (null by default)' `
+            # Phase 5b: explanations. The default provider is "none", which
+            # still answers via the templated explainer - so a 200 with a
+            # non-empty explanation is expected even with no key and no model.
+            Assert-That -Name 'Matches carry an explanation field (null until asked for)' `
                         -Condition ($ranked[0].PSObject.Properties.Name -contains 'explanation') `
                         -Detail 'the explanation field is missing from the response'
 
             $explained = Invoke-Api -Path '/api/matches?limit=1&explain=true'
-            if ($explained.Status -eq 503) {
-                Write-Skip 'LLM explanations' 'ANTHROPIC_API_KEY not configured - 503 as designed'
-                Assert-That -Name 'Unconfigured explanations fail with a clear error' `
-                            -Condition ($explained.Body -match 'explanations_not_configured') `
-                            -Detail $explained.Body
-            } else {
-                Assert-That -Name 'GET /api/matches?explain=true returns 200' `
-                            -Condition ($explained.Status -eq 200) `
-                            -Detail "got HTTP $($explained.Status): $($explained.Body)"
+            Assert-That -Name 'GET /api/matches?explain=true returns 200' `
+                        -Condition ($explained.Status -eq 200) `
+                        -Detail "got HTTP $($explained.Status): $($explained.Body)"
+
+            if ($explained.Status -eq 200) {
                 $top = @($explained.Json | Where-Object { $null -ne $_ })[0]
                 Assert-That -Name 'The top match comes back with an explanation' `
                             -Condition (-not [string]::IsNullOrWhiteSpace($top.explanation))
-                Write-Host "         explanation: $($top.explanation)" -ForegroundColor DarkGray
+                Assert-That -Name 'The explanation names which tier produced it' `
+                            -Condition ($top.explanationSource -in @('templated','ollama','claude')) `
+                            -Detail "explanationSource was '$($top.explanationSource)'"
+                # Whichever tier answered, it must not turn a truncated posting
+                # into a claim about what the employer does not want.
+                Assert-That -Name 'The explanation does not overclaim on truncated text' `
+                            -Condition ($top.explanation -notmatch 'does not require|not required|does not need') `
+                            -Detail $top.explanation
+                Write-Host "         [$($top.explanationSource)] $($top.explanation)" -ForegroundColor DarkGray
             }
 
             $filtered = Invoke-Api -Path '/api/matches?minScore=101'

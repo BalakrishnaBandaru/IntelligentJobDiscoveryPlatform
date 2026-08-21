@@ -129,24 +129,40 @@ scoring:
     # Freshness of the posting (skipped when the source reports no date).
     recency: ${SCORING_WEIGHT_RECENCY:5}
 
-# --- Phase 5b: LLM match explanations ---------------------------------------
+# --- Phase 5b: match explanations -------------------------------------------
 # The rule engine above produces the score. This layer only puts that score into
 # words — it is never shown the raw posting and can never change the number.
+# Three tiers, in order: the chosen provider, then the templated explainer, then
+# an error.
 explanation:
-  # Off by default so the app boots, and the smoke test passes, with no API key
-  # present at all. Turn on only once ANTHROPIC_API_KEY is set.
-  enabled: ${EXPLANATION_ENABLED:false}
-  api-key: ${ANTHROPIC_API_KEY:}
-  base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
-  # Current default model. Changing this is a deliberate decision, not a way to
-  # quietly save money — see README for the pricing.
-  model: ${EXPLANATION_MODEL:claude-opus-5}
-  # Thinking tokens count towards this as well as the visible answer, so it is
-  # deliberately looser than a two-sentence reply would need.
-  max-tokens: ${EXPLANATION_MAX_TOKENS:2048}
-  # The evidence arrives pre-computed and the model only has to phrase it, so
-  # low effort is the right setting here.
-  effort: ${EXPLANATION_EFFORT:low}
-  # How many of the ranked results get an explanation. Each one is a separate
-  # billed API call, so this is the cost control.
+  # none | ollama | claude.
+  #   none   - no model; the templated explainer answers. Works out of the box.
+  #   ollama - free, local, no key. Needs: docker compose --profile llm up -d ollama
+  #   claude - Anthropic API. Billed per token from a prepaid balance; a Claude
+  #            Pro subscription does NOT fund it.
+  provider: ${EXPLANATION_PROVIDER:none}
+  # templated | error. What happens when the provider cannot answer — a stopped
+  # Ollama container, a model not yet pulled, an exhausted API balance. Default
+  # degrades to plainer prose; "error" surfaces the outage instead.
+  fallback: ${EXPLANATION_FALLBACK:templated}
+  # How many ranked results get an explanation. Only a cost control for a paid
+  # provider — the template and a local model are free.
   max-matches: ${EXPLANATION_MAX_MATCHES:5}
+
+  ollama:
+    # Service name on the compose network, so no published port is needed.
+    base-url: ${OLLAMA_BASE_URL:http://ollama:11434}
+    # Small on purpose. The rule engine already did the judging; this only
+    # writes it up, so a 3B instruct model is enough and fits the memory budget.
+    model: ${OLLAMA_MODEL:llama3.2:3b}
+    # Low temperature keeps it close to the evidence instead of embellishing.
+    temperature: ${OLLAMA_TEMPERATURE:0.3}
+    num-predict: ${OLLAMA_NUM_PREDICT:300}
+
+  claude:
+    api-key: ${ANTHROPIC_API_KEY:}
+    base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+    model: ${EXPLANATION_CLAUDE_MODEL:claude-opus-5}
+    # Thinking tokens count towards this as well as the visible answer.
+    max-tokens: ${EXPLANATION_CLAUDE_MAX_TOKENS:2048}
+    effort: ${EXPLANATION_CLAUDE_EFFORT:low}

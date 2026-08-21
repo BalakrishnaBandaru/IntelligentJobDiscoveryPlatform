@@ -22,6 +22,10 @@ import java.util.List;
  * @param explanation      the Phase 5b sentence, or {@code null} when it was
  *                         not asked for. It is derived <i>from</i> the fields
  *                         above and never feeds back into {@link #score}
+ * @param explanationSource which tier wrote it — {@code "ollama"},
+ *                         {@code "claude"} or {@code "templated"}. Present so a
+ *                         reader is never left guessing whether a sentence came
+ *                         from a model or from a rule
  */
 public record JobScore(
         Long jobId,
@@ -38,17 +42,19 @@ public record JobScore(
         SeniorityLevel jobSeniority,
         ExperienceRequirement requiredYears,
         List<ScoreComponent> components,
-        String explanation) {
+        String explanation,
+        String explanationSource) {
 
     /**
-     * The same match with an explanation attached.
+     * The same match with an explanation attached, and a note of which tier
+     * produced it.
      *
      * <p>A copy rather than a setter, so the scored result stays immutable and
      * the explanation can never be mistaken for an input to the score.
      */
-    public JobScore withExplanation(String explanation) {
+    public JobScore withExplanation(String explanation, String explanationSource) {
         return new JobScore(jobId, title, company, location, source, applyUrl, postedDate,
                 score, matchedSkills, missingSkills, matchedKeywords,
-                jobSeniority, requiredYears, components, explanation);
+                jobSeniority, requiredYears, components, explanation, explanationSource);
     }
 }

@@ -21,7 +21,7 @@ import org.springframework.web.client.RestClientResponseException;
  * job-source clients and to avoid a new dependency.
  */
 @Component
-public class ClaudeClient {
+public class ClaudeClient implements LlmClient {
 
     /** Required on every request; pins the wire format. */
     private static final String API_VERSION = "2023-06-01";
@@ -35,10 +35,12 @@ public class ClaudeClient {
     private static final String FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
     private final RestClient restClient;
-    private final ExplanationProperties properties;
+    private final ExplanationProperties.Claude properties;
+    private final boolean enabled;
 
-    public ClaudeClient(ExplanationProperties properties) {
-        this.properties = properties;
+    public ClaudeClient(ExplanationProperties parent) {
+        this.properties = parent.claude();
+        this.enabled = parent.provider() == ExplanationProperties.Provider.CLAUDE;
 
         // Fail fast rather than tie up the request thread. Generation is slower
         // than a job-board lookup, so the read timeout is correspondingly longer.
@@ -52,9 +54,15 @@ public class ClaudeClient {
                 .build();
     }
 
-    /** True when a key is present and the feature is switched on. */
+    @Override
+    public String name() {
+        return "claude";
+    }
+
+    /** True when Claude is the selected provider and a key is present. */
+    @Override
     public boolean isConfigured() {
-        return properties.enabled() && StringUtils.hasText(properties.apiKey());
+        return enabled && StringUtils.hasText(properties.apiKey());
     }
 
     /**
@@ -62,11 +70,14 @@ public class ClaudeClient {
      *
      * @throws ExplanationException if unconfigured, refused, or unreachable
      */
+    @Override
     public String complete(String system, String userPrompt) {
         if (!isConfigured()) {
             throw new ExplanationException(ExplanationException.NOT_CONFIGURED,
-                    "Match explanations are not configured. Set ANTHROPIC_API_KEY in your .env "
-                    + "file and EXPLANATION_ENABLED=true, then recreate the app container.");
+                    "Claude is not configured. Set ANTHROPIC_API_KEY in your .env file and "
+                    + "EXPLANATION_PROVIDER=claude, then recreate the app container. Note that "
+                    + "the API is billed from a prepaid credit balance — a Claude Pro "
+                    + "subscription does not fund it.");
         }
 
         ClaudeMessageRequest request = new ClaudeMessageRequest(

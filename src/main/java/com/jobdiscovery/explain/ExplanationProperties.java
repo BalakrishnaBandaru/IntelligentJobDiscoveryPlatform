@@ -4,32 +4,67 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Configuration for the LLM that puts a match into words, bound from
- * {@code explanation.*}. The API key comes from the environment via
- * application.yml, so it never reaches source control — same arrangement as the
- * Adzuna and Jooble keys.
+ * Configuration for the layer that puts a match into words, bound from
+ * {@code explanation.*}.
  *
- * @param enabled    master switch. Off by default so the app runs, and the
- *                   smoke test passes, on a machine with no API key at all.
- * @param apiKey     Anthropic API key ({@code ANTHROPIC_API_KEY})
- * @param model      the model id. {@code claude-opus-5} is the current default
- *                   model; change it deliberately, not to save money by accident
- * @param maxTokens  ceiling for one explanation. Thinking tokens count towards
- *                   this as well as the visible answer, so it is not as tight as
- *                   a two-sentence reply would suggest
- * @param effort     {@code low}/{@code medium}/{@code high}/{@code xhigh}/{@code max}.
- *                   Low is right here: the evidence arrives pre-computed and the
- *                   model only has to phrase it
- * @param maxMatches how many of the ranked results get an explanation. Each one
- *                   is a separate API call, so this is the cost control
+ * <p>Three tiers, in order: the configured LLM provider, then the deterministic
+ * templated explainer, then a clear error. The ranking never depends on any of
+ * them — an explanation is commentary on a score that already exists.
+ *
+ * @param provider   {@code none}, {@code ollama} or {@code claude}. Defaults to
+ *                   {@code none} so a fresh clone works with no key, no model
+ *                   download and no account: {@code &explain=true} still returns
+ *                   something useful, marked as templated
+ * @param fallback   what to do when the provider is unavailable —
+ *                   {@code templated} (default) or {@code error}. Choose
+ *                   {@code error} when you would rather see an outage than a
+ *                   quietly degraded answer
+ * @param maxMatches how many ranked results get an explanation. Only a cost
+ *                   control for the paid provider; the template is free
  */
 @ConfigurationProperties(prefix = "explanation")
 public record ExplanationProperties(
-        @DefaultValue("false") boolean enabled,
-        String apiKey,
-        @DefaultValue("https://api.anthropic.com") String baseUrl,
-        @DefaultValue("claude-opus-5") String model,
-        @DefaultValue("2048") int maxTokens,
-        @DefaultValue("low") String effort,
-        @DefaultValue("5") int maxMatches) {
+        @DefaultValue("none") Provider provider,
+        @DefaultValue("templated") Fallback fallback,
+        @DefaultValue("5") int maxMatches,
+        @DefaultValue Claude claude,
+        @DefaultValue Ollama ollama) {
+
+    /** Where the prose comes from. */
+    public enum Provider { NONE, OLLAMA, CLAUDE }
+
+    /** What happens when the provider cannot answer. */
+    public enum Fallback { TEMPLATED, ERROR }
+
+    /**
+     * Anthropic Messages API. Metered per token from a prepaid balance — a
+     * Claude Pro subscription does not fund it.
+     *
+     * @param model  changing this is a deliberate decision, not a way to
+     *               quietly save money
+     * @param effort the evidence arrives pre-computed and only needs phrasing,
+     *               so {@code low} is right here
+     */
+    public record Claude(
+            String apiKey,
+            @DefaultValue("https://api.anthropic.com") String baseUrl,
+            @DefaultValue("claude-opus-5") String model,
+            @DefaultValue("2048") int maxTokens,
+            @DefaultValue("low") String effort) {
+    }
+
+    /**
+     * A local Ollama server, reached over the compose network. Free, needs no
+     * key, and keeps the prompt on this machine.
+     *
+     * @param model      a small instruct model is enough. The rule engine has
+     *                   already done the judgement; this only writes it up
+     * @param numPredict output token ceiling — two or three sentences
+     */
+    public record Ollama(
+            @DefaultValue("http://ollama:11434") String baseUrl,
+            @DefaultValue("llama3.2:3b") String model,
+            @DefaultValue("0.3") double temperature,
+            @DefaultValue("300") int numPredict) {
+    }
 }

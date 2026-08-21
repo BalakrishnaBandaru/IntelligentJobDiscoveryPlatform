@@ -190,39 +190,53 @@ curl "http://localhost:8080/api/matches?limit=5"
 
 ### Match explanations (Phase 5b)
 
-Add `&explain=true` to have an LLM put the top matches into words. **The model
-never produces or adjusts the score.** It is handed the number and the evidence
-the rule engine already derived — matched and missing skills, the seniority
-read, the per-dimension breakdown — and asked only to phrase them. It is
-deliberately never shown the job posting, which is exactly why it cannot form
-its own opinion of the fit. The number stays something you can unit-test; the
-sentence is downstream of it.
+Add `&explain=true` to have the top matches explained in prose. **No tier
+produces or adjusts the score.** Each is handed the number and the evidence the
+rule engine already derived — matched and missing skills, the seniority read,
+the per-dimension rating — and asked only to phrase it. None is ever shown the
+job posting, which is exactly why none can form its own opinion of the fit.
 
 ```bash
 curl "http://localhost:8080/api/matches?limit=5&explain=true"
 ```
 
-Off until you configure it. Set both in `.env`, then recreate the app container:
+Three tiers, tried in order. Every response says which one answered, in
+`explanationSource`:
 
+| Tier | `EXPLANATION_PROVIDER` | Cost | Notes |
+|---|---|---|---|
+| Local model | `ollama` | Free | Runs in a container; nothing leaves the machine |
+| Anthropic API | `claude` | Per token | Needs a prepaid balance — a Claude Pro subscription does **not** fund it |
+| Templated | *(fallback)* | Free | Deterministic prose from the same evidence. Always available |
+
+**The default is `none`, so this works with no key and no download** — the
+templated explainer answers. That is also the safety net: if Ollama is stopped
+or an API balance runs out, the shortlist still comes back with explanations
+rather than a 502, because the ranking never depended on a model. Set
+`EXPLANATION_FALLBACK=error` if you would rather see the outage.
+
+#### Running the local model
+
+```bash
+docker compose --profile llm up -d ollama
+docker exec jobdiscovery-ollama ollama pull llama3.2:3b
+# then set EXPLANATION_PROVIDER=ollama in .env and recreate the app
+docker compose up -d --force-recreate app
 ```
-EXPLANATION_ENABLED=true
-ANTHROPIC_API_KEY=sk-ant-...
-```
 
-Without them the ranking works exactly as before and `&explain=true` returns
-`503 explanations_not_configured` — the shortlist never depends on the LLM being
-available.
+It sits behind the `llm` profile so a plain `docker compose up` stays light. A
+3B model is enough because of how the work is split — the rule engine did the
+judging, so the model only writes it up. Expect roughly 12s per explanation on
+CPU once warm, plus a slow first call while the model loads into memory.
 
-| Setting | Default | Notes |
-|---|---|---|
-| `EXPLANATION_MODEL` | `claude-opus-5` | $5 / $25 per million input / output tokens |
-| `EXPLANATION_EFFORT` | `low` | The evidence arrives pre-computed; the model only phrases it |
-| `EXPLANATION_MAX_MATCHES` | `5` | Each explained match is a separate billed call — this is the cost control |
+**A caveat worth stating plainly:** at 3B the prose is serviceable but clunky,
+and arguably the *templated* tier reads better. The local model earns its place
+by being free and private, not by being good. A larger model, or the Claude
+tier, is a clear step up if you have the memory or the credit.
 
-Explanations are cached in memory, keyed by job **and score**. Scoring is
-recomputed on every request, so without that a second call would pay for the
-same sentences again; keying on the score means re-tuning a weight expires the
-entry by itself, with no invalidation logic to get wrong.
+Model explanations are cached in memory, keyed by job **and** score, so
+re-running a demo is instant and free after the first call; changing a weight
+changes the score and expires the entry by itself.
 
 ## Testing
 
