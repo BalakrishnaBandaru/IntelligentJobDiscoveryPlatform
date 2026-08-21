@@ -134,8 +134,9 @@ public class JobScoringService {
                 List.copyOf(matchedSkills), List.copyOf(missingSkills),
                 List.copyOf(matchedKeywords),
                 jobSeniority, required, components,
-                // Filled in downstream by the Phase 5b explainer, if asked for.
-                null, null);
+                // Both filled in downstream: the explanation by Phase 5b, the
+                // application status by Phase 7. Neither affects the number.
+                null, null, null);
     }
 
     /**

@@ -4,7 +4,7 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-21 (third session)._
+> _Last updated: 2026-08-21 (fourth session)._
 
 ---
 
@@ -13,11 +13,12 @@
 **Phase 5a — Deterministic rule engine — DONE and VERIFIED (2026-08-20).**
 Built 2026-08-19 without ever being compiled (Docker Desktop was down that whole
 session); verified 2026-08-20 against a full rebuild — see the table below.
-**Phase 6 — Telegram digest — BUILT (2026-08-21), NOT YET SENT LIVE.**
-`POST /api/notify` and `GET /api/notify/preview` are in place, the message
-format is verified against real data via the preview, and the unconfigured path
-returns 503. **No message has ever reached Telegram** — no bot exists yet. Next
-up: create a bot with @BotFather, or move to **Phase 7 / Phase 8**.
+**Phase 7 — Application tracking — DONE and VERIFIED (2026-08-21).** Exercised
+end to end against the real database. **Only Phase 8 (demo polish) remains.**
+
+Two things are built but never exercised live, both waiting on credentials
+rather than code: the **Telegram send** (no bot created) and the **Claude
+explanation tier** (no API credit). Neither blocks anything.
 
 ---
 
@@ -49,8 +50,10 @@ up: create a bot with @BotFather, or move to **Phase 7 / Phase 8**.
 - [x] **Phase 6 — Telegram notifications** — **BUILT 2026-08-21, no live send yet.**
       `POST /api/notify`, `GET /api/notify/preview`, `V5` adds `notified_at`.
       See below.
-- [ ] Phase 7 — Application tracking *(next, or skip to 8)*
-- [ ] Phase 8 — Demo polish (Docker/Adminer already done; Swagger, README, screenshots)
+- [x] **Phase 7 — Application tracking** — **DONE (verified 2026-08-21).**
+      `/api/applications` + funnel; `V6`. Feeds back into matches and the
+      digest. See below.
+- [ ] **Phase 8 — Demo polish** *(next, and the last one)* — Swagger, README, screenshots
 
 ### Phase 4 verification (2026-07-27)
 
@@ -377,6 +380,57 @@ digest does and does not follow a fetch).
 renders 8 matches at ~3.3K characters with correct escaping. **Not verified:**
 the actual Telegram send — no bot token exists.
 
+### Phase 7 — Application tracking (2026-08-21)
+
+New package `com.jobdiscovery.application`, `V6__create_job_application.sql`,
+and `/api/applications` with a funnel view.
+
+**Built to feed back into the pipeline, not to sit beside it.** Plain CRUD would
+have been busywork — a spreadsheet already does that. What earns its place is the
+integration:
+
+- The **digest stops announcing** a tracked job. A job you have applied to is not
+  a decision waiting to be made.
+- **`/api/matches` reports `applicationStatus`**, so the shortlist stays a list of
+  things still to decide.
+- **The score is untouched.** Status is attached *after* ranking, in
+  `MatchController`, so `JobScoringService.score()` stays pure — a documented
+  property of that class, and applying to a job genuinely does not change how
+  well it matches.
+
+Design points worth remembering:
+
+- **`appliedAt` is stamped once and never rewritten.** Advancing `APPLIED →
+  INTERVIEW` must not reset it, or "how long have they had this?" becomes
+  unanswerable — which is most of what a tracker is for. Tested explicitly.
+- **`SAVED` is the only non-submitted status.** A `REJECTED` application still
+  implies you applied, so tracking a job only once it is rejected still produces
+  a date rather than a rejection with no application behind it.
+- **One application per listing**, enforced by a unique constraint and a `409`
+  naming the existing row. Applying twice to one posting is a mistake, not a
+  case to model.
+- **`notified_at` and applications answer different questions.** Notified means
+  the digest mentioned it; an application means you acted. Conflating them would
+  either re-notify jobs already applied to, or treat reading a digest as
+  applying.
+- **The list view bulk-loads listings** (two queries, not N+1) and copies only
+  the fields it displays, so an application never drags a full `JobListing` —
+  description included — into memory.
+- **A deleted listing does not break the tracker**: the view shows
+  `(listing deleted)` rather than failing the whole request.
+
+**Verified end to end (2026-08-21)** against the real 86-row database: create
+defaulting to `APPLIED`; create as `SAVED` with a null `appliedAt`; `SAVED →
+APPLIED` stamping the date at transition; `APPLIED → INTERVIEW` leaving it
+untouched; duplicate → `409`; unknown job → `404`; missing `jobId` → `400`;
+funnel showing all seven statuses; `DELETE` → `204` then `404`. Matches showed
+`INTERVIEW`/`APPLIED` against the top two, and the digest's top entry moved from
+80.7 to 76.7 with both tracked jobs excluded. **Test data was then deleted** —
+the tracker is empty and the digest is back to 80.7.
+
+**Tests: 99 passing** (8 new in `JobApplicationTest`, covering the `appliedAt`
+stamping rules and the funnel ordering).
+
 ---
 
 ## 🧭 Key decisions
@@ -391,7 +445,7 @@ the actual Telegram send — no bot token exists.
 - **PostgreSQL, not H2.**
 - **Flyway migrations + `ddl-auto: none`** — schema versioned/explicit (V1 = table,
   V2 = content_hash + unique index, V3 = candidate profile + 4 child tables,
-  V4 = fetch_run history).
+  V4 = fetch_run history, V5 = notified_at, V6 = job_application).
 - **De-dup by content-hash** of normalised `(title|company|location)`, NOT by
   apply URL (URLs differ across sources / carry volatile tracking params). Unique
   index `ux_job_listing_content_hash`. Catches re-fetches AND cross-source dupes.
@@ -592,17 +646,17 @@ real output.
 
 **Next, in value order:**
 
-1. **Create a Telegram bot and send the first real digest.** Phase 6 is built
-   and previewable but has never sent. @BotFather → token → message the bot →
-   `getUpdates` → chat id → `.env` → recreate. Then `POST /api/notify?force=true`.
-2. **Decide where this runs.** Still unresolved, and now the limiting factor.
+1. **Phase 8 — demo polish.** The last phase, and the one an employer actually
+   sees: Swagger/OpenAPI, README screenshots, a tidy first-run path.
+2. **Create a Telegram bot and send the first real digest.** Built and
+   previewable, never sent. @BotFather → token → message the bot →
+   `getUpdates` → chat id → `.env` → recreate, then `POST /api/notify?force=true`.
+3. **Decide where this runs.** Still unresolved.
    A daily digest from a container that is not running delivers nothing; the
    startup fetch papers over the cron for local use but does not make the
    pipeline always-on. Options: a small always-on host, or GitHub Actions on a
    cron against a hosted instance.
-3. **Phase 8 polish** before applying anywhere — the README and screenshots are
-   what an employer actually sees. Phase 7 (application tracking) is CRUD and a
-   spreadsheet does it today; consider skipping straight to 8.
+Phase 7 is done, so the phase list is complete bar Phase 8.
 
 Weight tuning is **done** (2026-08-21) and needs no revisiting unless the search
 widens beyond Bangalore — see the tuning section above for why.
@@ -629,6 +683,8 @@ must not be mistaken for preferred ones).
 Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 `POST /api/adzuna/import`, `GET /api/adzuna/search` (raw), `GET /api/jobs[?source=]`,
 `GET /api/jobs/count`, `GET /api/fetch/runs`, `POST|GET|DELETE /api/profile`,
+`POST /api/notify`, `GET /api/notify/preview`,
+`POST|GET|PATCH|DELETE /api/applications`, `GET /api/applications/funnel`,
 `GET /api/matches?limit=&minScore=&source=&explain=`.
 
 ---

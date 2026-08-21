@@ -32,7 +32,7 @@ class DigestFormatterTest {
                 List.of("Java"), List.of(), List.of(),
                 SeniorityLevel.SENIOR, ExperienceRequirement.parse("", "5+ years"),
                 List.of(ScoreComponent.of("skills", 35, 1.0, "matched 1 of 1")),
-                explanation, explanation == null ? null : "templated");
+                explanation, explanation == null ? null : "templated", null);
     }
 
     @Test
@@ -116,7 +116,7 @@ class DigestFormatterTest {
     void handlesMissingFields() {
         JobScore sparse = new JobScore(1L, "Java Developer", null, null, "ADZUNA",
                 null, NOW, 70.0, List.of(), List.of(), List.of(),
-                SeniorityLevel.MID, null, List.of(), null, null);
+                SeniorityLevel.MID, null, List.of(), null, null, null);
 
         String out = formatter.format(List.of(sparse));
 

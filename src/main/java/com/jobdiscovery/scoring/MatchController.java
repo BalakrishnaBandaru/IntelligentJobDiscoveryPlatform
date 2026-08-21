@@ -1,7 +1,11 @@
 package com.jobdiscovery.scoring;
 
+import com.jobdiscovery.application.ApplicationService;
+import com.jobdiscovery.application.ApplicationStatus;
 import com.jobdiscovery.explain.MatchExplainer;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,10 +23,13 @@ public class MatchController {
 
     private final JobScoringService scoringService;
     private final MatchExplainer explainer;
+    private final ApplicationService applicationService;
 
-    public MatchController(JobScoringService scoringService, MatchExplainer explainer) {
+    public MatchController(JobScoringService scoringService, MatchExplainer explainer,
+                           ApplicationService applicationService) {
         this.scoringService = scoringService;
         this.explainer = explainer;
+        this.applicationService = applicationService;
     }
 
     /**
@@ -40,6 +47,27 @@ public class MatchController {
             @RequestParam(required = false) String source,
             @RequestParam(defaultValue = "false") boolean explain) {
         List<JobScore> ranked = scoringService.rank(limit, minScore, source);
-        return explain ? explainer.explainAll(ranked) : ranked;
+        if (explain) {
+            ranked = explainer.explainAll(ranked);
+        }
+        return annotateWithApplications(ranked);
+    }
+
+    /**
+     * Marks any match you have already acted on. Applied after ranking, never
+     * during it — tracking a job does not make it a better or worse match, it
+     * just means you no longer need to decide about it.
+     */
+    private List<JobScore> annotateWithApplications(List<JobScore> matches) {
+        Map<Long, ApplicationStatus> byJob = applicationService.statusByJobId();
+        if (byJob.isEmpty()) {
+            return matches;
+        }
+        List<JobScore> annotated = new ArrayList<>(matches.size());
+        for (JobScore match : matches) {
+            ApplicationStatus status = byJob.get(match.jobId());
+            annotated.add(status == null ? match : match.withApplicationStatus(status));
+        }
+        return annotated;
     }
 }

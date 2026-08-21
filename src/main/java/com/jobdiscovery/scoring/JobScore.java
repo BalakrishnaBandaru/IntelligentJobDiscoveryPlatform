@@ -1,5 +1,6 @@
 package com.jobdiscovery.scoring;
 
+import com.jobdiscovery.application.ApplicationStatus;
 import java.time.Instant;
 import java.util.List;
 
@@ -22,6 +23,10 @@ import java.util.List;
  * @param explanation      the Phase 5b sentence, or {@code null} when it was
  *                         not asked for. It is derived <i>from</i> the fields
  *                         above and never feeds back into {@link #score}
+ * @param applicationStatus where you have got to with this job, or {@code null}
+ *                         if it is not tracked. Attached after scoring, so the
+ *                         engine stays pure and a tracked job's rank is
+ *                         unaffected by the fact that it is tracked
  * @param explanationSource which tier wrote it — {@code "ollama"},
  *                         {@code "claude"} or {@code "templated"}. Present so a
  *                         reader is never left guessing whether a sentence came
@@ -43,7 +48,8 @@ public record JobScore(
         ExperienceRequirement requiredYears,
         List<ScoreComponent> components,
         String explanation,
-        String explanationSource) {
+        String explanationSource,
+        ApplicationStatus applicationStatus) {
 
     /**
      * The same match with an explanation attached, and a note of which tier
@@ -55,6 +61,22 @@ public record JobScore(
     public JobScore withExplanation(String explanation, String explanationSource) {
         return new JobScore(jobId, title, company, location, source, applyUrl, postedDate,
                 score, matchedSkills, missingSkills, matchedKeywords,
-                jobSeniority, requiredYears, components, explanation, explanationSource);
+                jobSeniority, requiredYears, components, explanation, explanationSource,
+                applicationStatus);
+    }
+
+    /**
+     * The same match annotated with where the application has got to.
+     *
+     * <p>Applied after ranking rather than during it. A job you have applied to
+     * is not a better or worse match than it was yesterday, so this must not
+     * touch the score — it only stops you re-reading something you have already
+     * dealt with.
+     */
+    public JobScore withApplicationStatus(ApplicationStatus status) {
+        return new JobScore(jobId, title, company, location, source, applyUrl, postedDate,
+                score, matchedSkills, missingSkills, matchedKeywords,
+                jobSeniority, requiredYears, components, explanation, explanationSource,
+                status);
     }
 }

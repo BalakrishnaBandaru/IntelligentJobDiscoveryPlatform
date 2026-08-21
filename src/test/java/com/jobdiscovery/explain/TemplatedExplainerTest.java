@@ -29,7 +29,7 @@ class TemplatedExplainerTest {
         return new JobScore(1L, "Senior Java Developer", "Acme", "Bangalore", "ADZUNA",
                 "https://example.com", NOW, score, matched, missing, List.of(),
                 SeniorityLevel.SENIOR, ExperienceRequirement.parse("", "5+ years"),
-                components, null, null);
+                components, null, null, null);
     }
 
     private ScoreComponent skills(double value, String detail) {

@@ -1,5 +1,6 @@
 package com.jobdiscovery.web;
 
+import com.jobdiscovery.application.ApplicationException;
 import com.jobdiscovery.explain.ExplanationException;
 import com.jobdiscovery.notify.NotificationException;
 import com.jobdiscovery.profile.ProfileNotFoundException;
@@ -45,6 +46,19 @@ public class ApiExceptionHandler {
         HttpStatus status = ExplanationException.NOT_CONFIGURED.equals(e.getCode())
                 ? HttpStatus.SERVICE_UNAVAILABLE
                 : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", e.getCode(),
+                "message", e.getMessage()));
+    }
+
+    @ExceptionHandler(ApplicationException.class)
+    public ResponseEntity<Map<String, Object>> handleApplication(ApplicationException e) {
+        // 404 for a missing application or listing; 409 for the one-application-
+        // per-listing rule, which is a conflict rather than a bad request.
+        HttpStatus status = ApplicationException.NOT_FOUND.equals(e.getCode())
+                ? HttpStatus.NOT_FOUND
+                : HttpStatus.CONFLICT;
         return ResponseEntity.status(status).body(Map.of(
                 "timestamp", Instant.now().toString(),
                 "error", e.getCode(),

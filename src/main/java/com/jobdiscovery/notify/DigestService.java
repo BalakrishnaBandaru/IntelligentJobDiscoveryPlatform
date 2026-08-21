@@ -1,5 +1,6 @@
 package com.jobdiscovery.notify;
 
+import com.jobdiscovery.application.ApplicationService;
 import com.jobdiscovery.explain.MatchExplainer;
 import com.jobdiscovery.job.JobListingRepository;
 import com.jobdiscovery.scoring.JobScore;
@@ -40,16 +41,19 @@ public class DigestService {
     private final JobScoringService scoringService;
     private final MatchExplainer explainer;
     private final JobListingRepository jobRepository;
+    private final ApplicationService applicationService;
     private final TelegramClient client;
     private final DigestFormatter formatter;
     private final TelegramProperties properties;
 
     public DigestService(JobScoringService scoringService, MatchExplainer explainer,
-                         JobListingRepository jobRepository, TelegramClient client,
+                         JobListingRepository jobRepository,
+                         ApplicationService applicationService, TelegramClient client,
                          DigestFormatter formatter, TelegramProperties properties) {
         this.scoringService = scoringService;
         this.explainer = explainer;
         this.jobRepository = jobRepository;
+        this.applicationService = applicationService;
         this.client = client;
         this.formatter = formatter;
         this.properties = properties;
@@ -135,10 +139,18 @@ public class DigestService {
 
         Set<Long> alreadySent = force ? Set.of() : jobRepository.findNotifiedIds();
 
+        // A job you have already applied to, saved, or been rejected from is
+        // not a decision waiting to be made. Excluded even under force, because
+        // force exists to re-test the wiring, not to re-open closed decisions.
+        Set<Long> tracked = applicationService.trackedJobIds();
+
         List<JobScore> candidates = new ArrayList<>();
         for (JobScore match : ranked) {
             if (candidates.size() >= properties.maxJobs()) {
                 break;
+            }
+            if (tracked.contains(match.jobId())) {
+                continue;
             }
             if (!alreadySent.contains(match.jobId())) {
                 candidates.add(match);

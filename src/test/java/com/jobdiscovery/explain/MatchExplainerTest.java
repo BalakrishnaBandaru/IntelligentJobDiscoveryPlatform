@@ -87,7 +87,7 @@ class MatchExplainerTest {
                                 + "unmatched count as unknown rather than absent"),
                         ScoreComponent.of("location", 20, 1.0, "'Bangalore' matches preferred"),
                         ScoreComponent.notApplicable("preferredCompany", 5, "none set")),
-                null, null);
+                null, null, null);
     }
 
     // --- prompt contract ---------------------------------------------------

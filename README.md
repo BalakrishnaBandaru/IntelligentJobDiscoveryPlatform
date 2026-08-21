@@ -36,8 +36,8 @@ the only thing a human looks at is a short, ranked, explained shortlist.
 | 5a | Rule engine (deterministic scoring) | ✅ Done |
 | 5b | LLM match explanations | ✅ Done |
 | 6 | Telegram notifications | ✅ Done |
-| 7 | Application tracking | ⬜ |
-| 8 | Demo polish (Swagger, README, screenshots) | ⬜ |
+| 7 | Application tracking | ✅ Done |
+| 8 | Demo polish (Swagger, README, screenshots) | ⏳ Next |
 
 ## Tech stack
 
@@ -318,6 +318,50 @@ described the top-ranked job as ranking "lower than expected" and cited a
 dimension that had explicitly dropped out. The templated tier is duller and
 accurate. Since a digest is read at a glance and acted on, accuracy matters more
 here than style, which is why `EXPLANATION_PROVIDER=none` is the default.
+
+## Application tracking (Phase 7)
+
+Records which listings you have acted on, and what happened next.
+
+| Method | Path | Behaviour |
+|---|---|---|
+| `POST` | `/api/applications` | Start tracking a job. `{"jobId": 172}` — defaults to `APPLIED` |
+| `GET` | `/api/applications?status=` | All applications, newest activity first |
+| `GET` | `/api/applications/funnel` | Counts per status, every status present even at zero |
+| `GET` | `/api/applications/{id}` | One application |
+| `PATCH` | `/api/applications/{id}` | Partial update — omitted fields are left alone |
+| `DELETE` | `/api/applications/{id}` | Stop tracking |
+
+Statuses run `SAVED → APPLIED → SCREENING → INTERVIEW → OFFER`, with `REJECTED`
+and `WITHDRAWN` as terminal states. `SAVED` is the shortlist-for-later case and
+is the only one that does not count as having applied.
+
+```bash
+curl -X POST localhost:8080/api/applications   -H "Content-Type: application/json"   -d '{"jobId": 172, "notes": "referred by a colleague"}'
+
+curl -X PATCH localhost:8080/api/applications/1   -H "Content-Type: application/json"   -d '{"status": "INTERVIEW", "notes": "call on Tuesday"}'
+```
+
+### Why it is not just CRUD
+
+Tracking a job feeds back into the rest of the pipeline, which is the point:
+
+- **The digest stops announcing it.** A job you have applied to is not a
+  decision waiting to be made, so re-sending it is noise.
+- **`/api/matches` shows where it got to**, in `applicationStatus`, so the
+  shortlist stays a list of things still to decide rather than one you have to
+  mentally filter.
+- **The score is untouched.** Status is attached *after* ranking — applying to a
+  job does not make it a better or worse match, and the engine stays pure.
+
+Two rules worth knowing:
+
+- **One application per listing.** Applying twice to the same posting is a
+  mistake rather than a case to model, so a second attempt returns `409` naming
+  the existing application.
+- **`appliedAt` is stamped once and never rewritten.** Moving `APPLIED →
+  INTERVIEW` must not reset the date you applied, or "how long have they had
+  this?" becomes unanswerable — which is most of what a tracker is for.
 
 ## Testing
 
