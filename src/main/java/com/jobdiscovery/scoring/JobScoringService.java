@@ -286,17 +286,25 @@ public class JobScoringService {
                     "posting states no location");
         }
 
-        // A posting located at nothing more precise than the country is
-        // location-UNKNOWN, not location-wrong. Jooble cannot geocode Indian
-        // cities and reports "India" for every result (see PROJECT_STATE), so
-        // scoring these zero buries every Jooble listing by 20 points no matter
-        // how well it otherwise fits. Note this only fires when the location is
-        // *exactly* the country: "Hyderabad, India" names a real, non-preferred
-        // city and still scores zero.
+        // A posting located at nothing more precise than the country tells us
+        // nothing about the city, so this dimension has nothing to judge and
+        // drops out — the same treatment preferred companies get when the
+        // profile names none.
+        //
+        // It was 0.0 originally, then 0.5 (fe17ace) to stop Jooble listings
+        // being buried. Half credit was still a verdict, though, and measuring
+        // it showed what that verdict actually did: Jooble cannot geocode Indian
+        // cities and reports "India" for every result, so ALL 24 Jooble rows
+        // scored exactly 0.5 and all 62 Adzuna rows exactly 1.0. The dimension
+        // had stopped measuring location and become a source flag worth a flat
+        // 10 points, which put 19 of the top 20 on one source while the pool was
+        // 72/28. Dropping out judges those postings on evidence that exists.
+        //
+        // Only fires when the location is *exactly* the country: "Hyderabad,
+        // India" names a real, non-preferred city and still scores zero.
         if (locationTokens.equals(TextNormalizer.tokenize(properties.homeCountry()))) {
-            return ScoreComponent.of("location", weight, 0.5,
-                    "'" + listing.getLocation() + "' is country-level only — the "
-                            + "posting may or may not be in a preferred city");
+            return ScoreComponent.notApplicable("location", weight,
+                    "'" + listing.getLocation() + "' is country-level only — no city to judge");
         }
 
         return ScoreComponent.of("location", weight, 0.0,

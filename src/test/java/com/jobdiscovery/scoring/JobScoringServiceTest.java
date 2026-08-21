@@ -242,15 +242,57 @@ class JobScoringServiceTest {
     }
 
     @Test
-    @DisplayName("a country-only location is unknown, not wrong")
-    void countryOnlyLocationIsPartialCredit() {
+    @DisplayName("a country-only location has nothing to judge, so it drops out")
+    void countryOnlyLocationIsNotApplicable() {
         // Jooble cannot geocode Indian cities and reports "India" for every
-        // result. Scoring that zero buried every Jooble listing by 20 points.
+        // result. Scoring that zero buried every Jooble listing by 20 points;
+        // half credit was still a verdict, and in practice ALL Jooble rows got
+        // 0.5 and ALL Adzuna rows 1.0, turning the dimension into a source flag.
         JobScore scored = service.score(
                 job("Java Developer", "Mastercard", "India", "8+ years of experience", NOW),
                 seniorJavaCandidate(), NOW);
 
-        assertEquals(0.5, component(scored, "location").value(), 0.01);
+        assertFalse(component(scored, "location").applicable(),
+                "there is no city to judge, so the weight must leave the divisor");
+        assertEquals(0.0, component(scored, "location").points(), 0.01);
+    }
+
+    @Test
+    @DisplayName("an unlocatable but well-matched job beats a local but poorly-matched one")
+    void meritOutranksAnUnknownLocation() {
+        // The point of dropping the dimension rather than half-crediting it. A
+        // confirmed Bangalore job that also fits well still wins - that is
+        // correct. What must NOT happen is a flat location bonus deciding the
+        // ranking on its own, which is what a blanket 0.5-vs-1.0 split did: all
+        // 24 Jooble rows scored 0.5 and all 62 Adzuna rows 1.0, so 19 of the top
+        // 20 came from one source while the pool was 72/28.
+        JobScore unlocatableButStrong = service.score(
+                job("Senior Java Developer", "Acme", "India",
+                        "Spring Boot backend, 8+ years of experience", NOW),
+                seniorJavaCandidate(), NOW);
+        JobScore localButWeak = service.score(
+                job("PHP Developer", "Acme", "Bangalore",
+                        "Drupal work, 1-2 years of experience", NOW),
+                seniorJavaCandidate(), NOW);
+
+        assertTrue(unlocatableButStrong.score() > localButWeak.score(),
+                "unlocatable-but-strong %.1f should beat local-but-weak %.1f"
+                        .formatted(unlocatableButStrong.score(), localButWeak.score()));
+    }
+
+    @Test
+    @DisplayName("a country-only location still beats a named wrong city")
+    void countryOnlyBeatsWrongCity() {
+        JobScore country = service.score(
+                job("Java Developer", "Acme", "India", "8+ years of experience", NOW),
+                seniorJavaCandidate(), NOW);
+        JobScore wrongCity = service.score(
+                job("Java Developer", "Acme", "Warsaw", "8+ years of experience", NOW),
+                seniorJavaCandidate(), NOW);
+
+        assertTrue(country.score() > wrongCity.score(),
+                "unknown %.1f should beat known-wrong %.1f"
+                        .formatted(country.score(), wrongCity.score()));
     }
 
     @Test

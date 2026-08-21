@@ -271,6 +271,61 @@ Three of the top five are now postings from the last day. This is the evidence
 for a general point worth keeping: **fresher inputs beat better ranking.** The
 weights had not changed at all.
 
+### Weight tuning pass (2026-08-21) — weights kept, two bugs found instead
+
+Ran the long-deferred tuning pass against the fresh 86-listing pool. **The
+weights did not need changing.** Measuring each dimension's contribution to
+ranking order (weight × spread across the real data) against its nominal share:
+
+| Dimension | Weight | Share of what actually separates jobs |
+|---|---:|---:|
+| skills | 35 | 40% |
+| seniority | 25 | 24% |
+| location | 20 | 20% |
+| keywords | 10 | 10% |
+| recency | 5 | 6% |
+| preferredCompany | 5 | 0% (profile names none, correctly drops out) |
+
+Well calibrated. The pass found two real defects instead, both worth more than
+any weight change:
+
+**1. `location` had become a source flag (FIXED).** Measured across the pool,
+*every* Adzuna row scored exactly 1.00 and *every* Jooble row exactly 0.50 —
+Jooble reports the literal string "India" for all 24 of its results, its only
+distinct location value. A dimension worth 20 weight was therefore applying a
+flat 10-point penalty to one source: Jooble was 28% of the pool but 5% of the
+top 20, and mean scores were ADZUNA 55.5 vs JOOBLE 50.4.
+
+The half-credit from `fe17ace` was an improvement on scoring it zero, but it was
+still a verdict on something unknowable. A country-only location now marks the
+dimension **not applicable**, so its weight leaves the divisor — the same
+treatment `preferredCompany` already gets. Those postings are judged on evidence
+that exists. Effect: strong Jooble listings rose (*Java Developer (Senior-Level)*
+#8 → #2, *Senior Engineer - Java Full Stack* #23 → #15) and weak ones fell
+(*Backend/Cloud Engineer* #69 → #80). Merit decides instead of the source.
+
+**2. No `SCORING_*` variable ever reached the container (FIXED).**
+`application.yml` reads all eight from the environment and both it and the README
+advertise the weights as runtime-tunable — but `docker-compose.yml` had no
+passthroughs, so they were only changeable by editing YAML and rebuilding. This
+silently invalidated the first tuning experiment of this session: setting
+`SCORING_WEIGHT_LOCATION` appeared to change nothing because the value never
+arrived. Now passed through, so a weight can be changed in `.env` and applied
+with `docker compose up -d --force-recreate app`.
+
+**Location weight, deliberately left at 20.** With the passthrough working, 10
+was tested properly: it erases the source gap entirely (5.0 → 0.0) and reorders
+73 of 86 listings. That overcorrects — it says a *confirmed* Bangalore location
+is worth nothing, which contradicts having a location preference at all. The
+structural bias is gone; the remaining gap is now real information.
+
+**A caveat on location's variance.** Among rows where it still applies, spread is
+now **0.00** — every one scores 1.00, because the fetch already filters on
+Bangalore. It cannot separate any two jobs; it only lifts the absolute score of
+listings whose city is confirmed. That is honest rather than wrong, but it means
+the dimension would only start earning its 20 weight if the search widened
+(remote roles, other cities). Worth revisiting then, not now.
+
 ---
 
 ## 🧭 Key decisions
@@ -486,18 +541,17 @@ real output.
 
 **Next, in value order:**
 
-1. **Tune the weights.** Now genuinely worth doing: the data is fresh (86
-   listings, 22 from the last week) and both blockers that made tuning
-   meaningless — truncation and word-break matching — are fixed. Nine listings
-   score 70+, so there is a real spread to tune against for the first time.
-2. **Decide where this runs before building Phase 6.** A daily Telegram digest
+1. **Decide where this runs before building Phase 6.** A daily Telegram digest
    from a container that is not running delivers nothing; the startup fetch
    papers over the cron for local use but does not make the pipeline
    always-on. Options: a small always-on host, or GitHub Actions on a cron
    against a hosted instance. This question is Phase 6's real prerequisite.
-3. **Phase 6 — Telegram notifications**, once (2) is answered.
-4. **Phase 8 polish** before applying anywhere — the README and screenshots are
+2. **Phase 6 — Telegram notifications**, once (1) is answered.
+3. **Phase 8 polish** before applying anywhere — the README and screenshots are
    what an employer actually sees.
+
+Weight tuning is **done** (2026-08-21) and needs no revisiting unless the search
+widens beyond Bangalore — see the tuning section above for why.
 
 Lower value, deliberately deprioritised:
 

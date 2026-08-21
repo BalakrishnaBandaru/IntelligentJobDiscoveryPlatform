@@ -77,6 +77,19 @@ services:
       FETCH_SCHEDULE_ZONE: "${FETCH_SCHEDULE_ZONE:-Asia/Kolkata}"
       FETCH_KEYWORDS: "${FETCH_KEYWORDS:-java developer}"
       FETCH_LOCATION: "${FETCH_LOCATION:-bangalore}"
+      # Scoring weights (Phase 5a). application.yml reads all of these from the
+      # environment, but without these passthroughs they never reached the
+      # container — so the weights were only tunable by editing YAML and
+      # rebuilding, which is precisely the friction the env vars existed to
+      # avoid. Change one in .env and `docker compose up -d --force-recreate app`.
+      SCORING_WEIGHT_SKILLS: ${SCORING_WEIGHT_SKILLS:-35}
+      SCORING_WEIGHT_SENIORITY: ${SCORING_WEIGHT_SENIORITY:-25}
+      SCORING_WEIGHT_LOCATION: ${SCORING_WEIGHT_LOCATION:-20}
+      SCORING_WEIGHT_KEYWORDS: ${SCORING_WEIGHT_KEYWORDS:-10}
+      SCORING_WEIGHT_PREFERRED_COMPANY: ${SCORING_WEIGHT_PREFERRED_COMPANY:-5}
+      SCORING_WEIGHT_RECENCY: ${SCORING_WEIGHT_RECENCY:-5}
+      SCORING_HOME_COUNTRY: ${SCORING_HOME_COUNTRY:-India}
+      SCORING_TRUNCATED_MISS_WEIGHT: ${SCORING_TRUNCATED_MISS_WEIGHT:-0.5}
       # Phase 5b — match explanations. "none" falls through to the templated
       # explainer, so &explain=true works out of the box with no model and no
       # key; set "ollama" (free, local) or "claude" (paid API) to use a model.

@@ -142,14 +142,18 @@ number. That split is what keeps the ranking auditable and reproducible.
 |---|---|---|
 | `GET` | `/api/matches?limit=20&minScore=0&source=` | Ranked shortlist, highest score first; `404` if no profile is set |
 
-Six dimensions contribute, with weights configurable under `scoring.weights`
-in [`application.yml`](src/main/resources/application.yml):
+Six dimensions contribute. The weights are tunable at runtime — set any of them
+in `.env` and recreate the app container, no rebuild:
+
+```bash
+SCORING_WEIGHT_SKILLS=40 docker compose up -d --force-recreate app
+```
 
 | Dimension | Weight | What it measures |
 |---|---:|---|
 | `skills` | 35 | Profile skills the posting names; a skill in the **title** counts for more than one buried in the body |
 | `seniority` | 25 | Years the posting asks for vs. the candidate's, falling back to the level implied by the title |
-| `location` | 20 | Posting location vs. preferred locations, with city aliases and remote/hybrid handling |
+| `location` | 20 | Posting location vs. preferred locations, with city aliases and remote/hybrid handling. A country-only location (all a source can give for some markets) has no city to judge, so the dimension drops out rather than guessing |
 | `keywords` | 10 | Profile keywords beyond the hard skills list |
 | `preferredCompany` | 5 | Bonus when the employer is one the candidate named |
 | `recency` | 5 | How recently the posting went up |
@@ -169,7 +173,13 @@ Four design decisions worth calling out:
   words together.
 - **A dimension with nothing to judge drops out** rather than scoring zero. If
   the profile names no preferred companies, that weight leaves the divisor
-  instead of capping every job at 95.
+  instead of capping every job at 95. The same applies to a posting whose
+  location is only a country — which turned out to matter more than expected.
+  Jooble cannot geocode Indian cities and returns the literal string "India" for
+  every result, so scoring it *anything* fixed turned a 20-weight dimension into
+  a flat penalty on one source: every Adzuna row scored 1.00 and every Jooble row
+  0.50, putting 95% of the top 20 on one source while the pool was 72/28.
+  Dropping out lets those postings be judged on evidence that exists.
 - **A missing skill in a truncated posting is *unknown*, not *absent*.** Neither
   source returns the real posting — Adzuna caps its description at 500 characters
   and Jooble's field is a `snippet`, so every stored row is a preview. Counting
