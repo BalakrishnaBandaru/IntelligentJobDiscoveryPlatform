@@ -238,6 +238,33 @@ Model explanations are cached in memory, keyed by job **and** score, so
 re-running a demo is instant and free after the first call; changing a weight
 changes the score and expires the entry by itself.
 
+### Keeping the data fresh
+
+The daily cron (`fetch.schedule.*`) assumes a host that stays up. A laptop
+running Docker Desktop is not one — in practice the container is rarely alive at
+06:00, and the pipeline once went **25 days without fetching** while nothing
+recorded that it had stopped.
+
+Two things address that:
+
+- **A catch-up fetch on startup.** If the last attempt is older than
+  `FETCH_STARTUP_MAX_AGE_HOURS` (default 12), starting the stack triggers a
+  fetch. It runs on a background thread so the health check is not delayed, and
+  a failure is logged rather than propagated — the stored listings are still
+  rankable. Disable with `FETCH_STARTUP_ENABLED=false`.
+- **A record of every run**, at `GET /api/fetch/runs`. This exists because the
+  job table could not answer "is the pipeline running?" — de-duplication means a
+  healthy run that finds only duplicates writes no rows, so a stalled pipeline
+  and a quiet one looked identical.
+
+```bash
+curl "http://localhost:8080/api/fetch/runs"
+```
+
+The guard keys on the last *attempt*, not the newest job, precisely so that a
+run which legitimately finds nothing new does not cause a re-fetch on every
+restart.
+
 ## Testing
 
 Tests run in a container like everything else — no host JDK needed. The `test`

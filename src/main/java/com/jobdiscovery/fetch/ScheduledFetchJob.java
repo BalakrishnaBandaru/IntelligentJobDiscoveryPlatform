@@ -39,7 +39,8 @@ public class ScheduledFetchJob {
         log.info("Scheduled fetch starting (keywords='{}', location='{}')...",
                 properties.keywords(), properties.location());
 
-        FetchSummary summary = fetchService.fetchAll(properties.keywords(), properties.location());
+        FetchSummary summary = fetchService.fetchAll(
+                properties.keywords(), properties.location(), FetchRun.Trigger.SCHEDULED);
 
         log.info("Scheduled fetch complete: {} NEW jobs saved (fetched={}, duplicates={}) across {} source(s)",
                 summary.totalSaved(), summary.totalFetched(), summary.totalDuplicates(), summary.sources().size());

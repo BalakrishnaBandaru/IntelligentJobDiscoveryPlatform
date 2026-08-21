@@ -88,9 +88,24 @@ fetch:
     # Default: 06:00 every day, in the zone below.
     cron: ${FETCH_SCHEDULE_CRON:0 0 6 * * *}
     zone: ${FETCH_SCHEDULE_ZONE:Asia/Kolkata}
-    # What the scheduled run searches for.
+    # What the scheduled run searches for. Also used by the startup fetch.
     keywords: ${FETCH_KEYWORDS:java developer}
     location: ${FETCH_LOCATION:bangalore}
+  startup:
+    # Catch-up fetch when the app starts, if the last attempt is older than
+    # max-age-hours. The cron above assumes an always-on host; this assumes the
+    # opposite, which is what a laptop running Docker Desktop actually is. On
+    # 2026-08-21 the newest stored posting was 25 days old because the container
+    # was almost never up at 06:00 IST.
+    #
+    # Disabled in the test configuration: a fetch during @SpringBootTest would
+    # call the live job boards and spend real API quota.
+    enabled: ${FETCH_STARTUP_ENABLED:true}
+    # Guarded on the last fetch ATTEMPT, not the newest job — de-duplication
+    # means a run that finds nothing new writes no rows, so job age would
+    # re-fetch on every restart. 12h means at most two fetches a day from
+    # restarts.
+    max-age-hours: ${FETCH_STARTUP_MAX_AGE_HOURS:12}
 
 # --- Scoring rule engine (Phase 5) -----------------------------------------
 # Relative weights for the deterministic rule engine. The score divides earned

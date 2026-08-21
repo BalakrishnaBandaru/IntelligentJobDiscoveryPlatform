@@ -4,7 +4,7 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-21._
+> _Last updated: 2026-08-21 (second session)._
 
 ---
 
@@ -19,7 +19,10 @@ templated explainer underneath both. **Verified end to end against the local
 model** — real explanations for the real 57 rows. The Claude tier remains
 unexercised (the account has no credit; a Pro subscription does not fund the
 API), but it is no longer on the critical path. Next up: **Phase 6 — Telegram
-notifications**.
+notifications** — but see the deployment note under Known issues first.
+
+**Startup fetch added 2026-08-21.** The pipeline had silently not fetched for 25
+days; starting the stack now catches up. See below.
 
 ---
 
@@ -221,6 +224,53 @@ explanation warm on CPU, 0.36s fully cached, and a slow first call while the
 so what is tested is the prompt contract, the caching, the cost cap, and that a
 provider failure degrades to the template.
 
+### Startup fetch + run history (2026-08-21)
+
+**The problem.** The newest stored posting was 2026-07-27 — 25 days stale — and
+nothing anywhere recorded that the pipeline had stopped. Two causes, both
+structural:
+
+1. The daily cron fires at 06:00 IST, but the container only exists while Docker
+   Desktop is running. On a laptop it almost never fires.
+2. **Nothing recorded fetch *attempts*.** De-duplication means a healthy run that
+   finds only duplicates writes no rows, so "no new jobs" and "no run happened"
+   were indistinguishable from the `job_listing` table.
+
+**The fix.** `V4__create_fetch_run.sql` plus `StartupFetchJob`:
+
+- Every run is now recorded — trigger (`STARTUP`/`SCHEDULED`/`MANUAL`), counts,
+  per-source breakdown — including runs that fail, and runs that find nothing.
+- `GET /api/fetch/runs` exposes the last 20, which is the answer to "is this
+  thing actually running?"
+- On `ApplicationReadyEvent`, if the last *attempt* is older than
+  `fetch.startup.max-age-hours` (12), fetch. **Guarded on the attempt, not the
+  newest job** — job age would re-fetch on every restart, and this container was
+  recreated a dozen times in one afternoon.
+- Runs on its own daemon thread: `ApplicationReadyEvent` listeners run on the
+  startup thread, and blocking there on two external APIs would delay the health
+  check and risk the container's start period.
+- Failure is swallowed and logged. The app is already serving and the stored
+  listings are still rankable.
+- Disabled in `src/test/resources/application.properties`, along with the
+  scheduler — a fetch during `@SpringBootTest` would spend real API quota on
+  every build.
+
+**Result of the first run (2026-08-21):** 40 fetched, **29 new jobs saved**, 11
+duplicates. The pool went 57 → 86 listings; 22 of them posted within 7 days,
+where previously *none* were under 24 days old.
+
+| | Before | After |
+|---|---:|---:|
+| Listings | 57 | 86 |
+| Top score | 76.7 | **80.7** |
+| Median score | 51.7 | 54.0 |
+| Scoring 70+ | 3 | **9** |
+| Scoring 60+ | 11 | **26** |
+
+Three of the top five are now postings from the last day. This is the evidence
+for a general point worth keeping: **fresher inputs beat better ranking.** The
+weights had not changed at all.
+
 ---
 
 ## 🧭 Key decisions
@@ -234,7 +284,8 @@ provider failure degrades to the template.
     `RestClient.builder()`.
 - **PostgreSQL, not H2.**
 - **Flyway migrations + `ddl-auto: none`** — schema versioned/explicit (V1 = table,
-  V2 = content_hash + unique index, V3 = candidate profile + 4 child tables).
+  V2 = content_hash + unique index, V3 = candidate profile + 4 child tables,
+  V4 = fetch_run history).
 - **De-dup by content-hash** of normalised `(title|company|location)`, NOT by
   apply URL (URLs differ across sources / carry volatile tracking params). Unique
   index `ux_job_listing_content_hash`. Catches re-fetches AND cross-source dupes.
@@ -262,12 +313,14 @@ provider failure degrades to the template.
 
 ## ⚠️ Known issues / flagged, not yet fixed
 
-- **Seniority mismatch (partly addressed 2026-08-19).** The candidate has **10
-  years** of experience, but the scheduler fetches on
-  `FETCH_KEYWORDS="java developer"`, which surfaces many 2–5 year roles. The
-  Phase 5a engine now penalises over-qualification heavily, so those roles rank
-  low — but they are still being *fetched*. Widening `FETCH_KEYWORDS`
-  (senior / lead / staff) is still open.
+- **Seniority mismatch (CLOSED 2026-08-21 — the premise was wrong).** This was
+  recorded as "`FETCH_KEYWORDS=\"java developer\"` surfaces many 2–5 year roles",
+  with widening the keywords left open. Measured against the actual pool, that
+  is not true: **59% of the 86 stored listings read SENIOR, LEAD or PRINCIPAL**
+  (21 senior, 21 lead, 9 principal, against 34 mid and 1 junior). The mix is
+  fine and the over-qualification penalty handles the rest. No action needed —
+  do not widen the keywords on the strength of the old note.
+
 - **Truncated postings starving the skills dimension (FIXED 2026-08-20).**
   Found on the first real ranking, fixed the same day. **Every one of the 57
   stored rows is a preview, not a posting** — Adzuna caps its description at
@@ -354,6 +407,20 @@ provider failure degrades to the template.
   microsecond precision (`...266480Z`). Same instant, different digits. Confirmed
   2026-08-20 that upsert semantics are correct — id and `createdAt` *are*
   preserved; only the echoed precision differs.
+- **The daily cron cannot be relied on, by construction (mitigated 2026-08-21).**
+  It fires at 06:00 IST, but the container only exists while Docker Desktop is
+  running on a laptop — so it almost never fires. Found when the newest stored
+  posting turned out to be **25 days old** (2026-07-27) with nothing recording
+  that the pipeline had stopped. The startup fetch now covers this: starting the
+  stack fetches if the last *attempt* is older than 12h. **The underlying point
+  stands, though — a schedule assumes an always-on host, and this is not one.**
+  If Phase 6's daily Telegram digest is to mean anything, the pipeline needs
+  somewhere that stays up; a digest from a container that is not running
+  delivers nothing. That is the real question to answer before Phase 6.
+- **Adzuna occasionally returns a posting dated slightly in the future**
+  (seen 2026-08-21: `posted_date` a day ahead of `now()`). `scoreRecency`
+  already clamps a negative age to 0, so it scores as brand new rather than
+  breaking — noted so it is not mistaken for a bug later.
 - **🔴 The Postgres password is still the published placeholder.** `.env`'s
   `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` are byte-identical to the
   committed `.env.example`, and **the repo is now public**. The host port
@@ -417,19 +484,29 @@ numbers that mean something. `scoring.truncated-miss-weight` (default `0.5`) is
 itself the first knob worth trying; the weights have never been tuned against
 real output.
 
-**Next: Phase 6 — Telegram notifications.** Phase 5b is done; explanations run
-locally for free, so nothing is blocked.
+**Next, in value order:**
 
-Optional improvements to Phase 5b, in rough value order:
+1. **Tune the weights.** Now genuinely worth doing: the data is fresh (86
+   listings, 22 from the last week) and both blockers that made tuning
+   meaningless — truncation and word-break matching — are fixed. Nine listings
+   score 70+, so there is a real spread to tune against for the first time.
+2. **Decide where this runs before building Phase 6.** A daily Telegram digest
+   from a container that is not running delivers nothing; the startup fetch
+   papers over the cron for local use but does not make the pipeline
+   always-on. Options: a small always-on host, or GitHub Actions on a cron
+   against a hosted instance. This question is Phase 6's real prerequisite.
+3. **Phase 6 — Telegram notifications**, once (2) is answered.
+4. **Phase 8 polish** before applying anywhere — the README and screenshots are
+   what an employer actually sees.
 
-1. **A better local model.** llama3.2:3b is factually fine but writes clumsily.
-   The VM has ~7.6GB and Ollama already uses ~3.9GB, so a 7B at Q4 is tight but
-   may fit — try `qwen2.5:7b` and compare, or try `qwen2.5:3b` as a
-   same-size alternative that may follow format instructions better.
-2. **Tune the weights.** Still never done against real output. Both blockers
-   that made it pointless (truncation, word-break matching) are now fixed.
-3. **The Claude tier**, if there is ever credit — it needs
-   `EXPLANATION_PROVIDER=claude` and a balance. The key in `.env` is valid.
+Lower value, deliberately deprioritised:
+
+- **A better local model.** llama3.2:3b writes clumsily but is factually
+  constrained, and the templated tier arguably reads better anyway. ~3.7GB of
+  headroom remains, so `qwen2.5:7b` at Q4 is tight but might fit.
+- **The Claude tier**, if there is ever credit. Needs
+  `EXPLANATION_PROVIDER=claude` and a balance; the key in `.env` is valid.
+- **Phase 7 — application tracking.** CRUD, and a spreadsheet does it today.
 
 **Deferred idea — resume upload (discussed 2026-07-27).** Extract the profile
 from an uploaded PDF/DOCX (Apache PDFBox + Apache POI). Agreed to defer until
@@ -443,8 +520,8 @@ must not be mistaken for preferred ones).
 
 Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 `POST /api/adzuna/import`, `GET /api/adzuna/search` (raw), `GET /api/jobs[?source=]`,
-`GET /api/jobs/count`, `POST|GET|DELETE /api/profile`,
-`GET /api/matches?limit=&minScore=&source=`.
+`GET /api/jobs/count`, `GET /api/fetch/runs`, `POST|GET|DELETE /api/profile`,
+`GET /api/matches?limit=&minScore=&source=&explain=`.
 
 ---
 
