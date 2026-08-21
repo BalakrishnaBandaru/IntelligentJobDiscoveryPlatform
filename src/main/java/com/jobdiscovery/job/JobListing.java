@@ -53,6 +53,14 @@ public class JobListing {
     private Instant fetchedAt;
 
     /**
+     * When this listing was included in a digest, or null if it never has been.
+     * Stops the daily notification repeating the same shortlist every morning,
+     * which is how a digest gets ignored.
+     */
+    @Column(name = "notified_at")
+    private Instant notifiedAt;
+
+    /**
      * Deterministic SHA-256 hash of the normalised (title|company|location),
      * used to de-duplicate listings. Set by JobIngestionService before persist.
      */
@@ -154,5 +162,13 @@ public class JobListing {
 
     public void setContentHash(String contentHash) {
         this.contentHash = contentHash;
+    }
+
+    public Instant getNotifiedAt() {
+        return notifiedAt;
+    }
+
+    public void setNotifiedAt(Instant notifiedAt) {
+        this.notifiedAt = notifiedAt;
     }
 }

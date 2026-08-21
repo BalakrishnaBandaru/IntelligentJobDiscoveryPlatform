@@ -3,6 +3,7 @@ package com.jobdiscovery.fetch;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.jobdiscovery.notify.DigestNotifier;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -46,11 +47,35 @@ class StartupFetchJobTest {
         }
     }
 
+    /** A notifier that records rather than sending. */
+    private static final class RecordingNotifier extends DigestNotifier {
+
+        private final List<String> sends = new ArrayList<>();
+
+        RecordingNotifier() {
+            super(null, null);
+        }
+
+        @Override
+        public void sendQuietly(String context) {
+            sends.add(context);
+        }
+
+        @Override
+        public void sendOnStartup(String context) {
+            sends.add(context);
+        }
+    }
+
+    private RecordingNotifier notifier;
+
     private StartupFetchJob job(RecordingFetchService service, int maxAgeHours) {
+        notifier = new RecordingNotifier();
         return new StartupFetchJob(service,
                 new FetchStartupProperties(true, maxAgeHours),
                 new FetchScheduleProperties(true, "0 0 6 * * *", "Asia/Kolkata",
-                        "java developer", "bangalore"));
+                        "java developer", "bangalore"),
+                notifier);
     }
 
     @Test
@@ -91,6 +116,39 @@ class StartupFetchJobTest {
         job(service, 12).run();
 
         assertEquals(1, service.calls.size(), "12h with a 12h threshold should fetch");
+    }
+
+    @Test
+    @DisplayName("a digest is sent after a successful startup fetch")
+    void notifiesAfterFetching() {
+        RecordingFetchService service = new RecordingFetchService(Duration.ofHours(25));
+        job(service, 12).run();
+
+        assertEquals(1, notifier.sends.size(), "the digest should follow the fetch");
+    }
+
+    @Test
+    @DisplayName("a digest still goes out when the fetch was skipped as too recent")
+    void notifiesEvenWhenFetchSkipped() {
+        // The fetch was skipped because it ran recently, not because there is
+        // nothing to report - there may still be unnotified matches.
+        RecordingFetchService service = new RecordingFetchService(Duration.ofHours(2));
+        job(service, 12).run();
+
+        assertTrue(service.calls.isEmpty(), "no fetch should have happened");
+        assertEquals(1, notifier.sends.size(), "but a digest should still be attempted");
+    }
+
+    @Test
+    @DisplayName("a failed fetch sends no digest")
+    void noDigestWhenFetchFails() {
+        RecordingFetchService service = new RecordingFetchService(Duration.ofHours(25));
+        service.failWith = new IllegalStateException("Adzuna unreachable");
+
+        job(service, 12).run();
+
+        assertTrue(notifier.sends.isEmpty(),
+                "nothing was fetched, so there is nothing to announce");
     }
 
     @Test

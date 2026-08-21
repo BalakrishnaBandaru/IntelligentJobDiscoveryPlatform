@@ -35,7 +35,7 @@ the only thing a human looks at is a short, ranked, explained shortlist.
 | 4 | Candidate profile | ✅ Done |
 | 5a | Rule engine (deterministic scoring) | ✅ Done |
 | 5b | LLM match explanations | ✅ Done |
-| 6 | Telegram notifications | ⏳ Next |
+| 6 | Telegram notifications | ✅ Done |
 | 7 | Application tracking | ⬜ |
 | 8 | Demo polish (Swagger, README, screenshots) | ⬜ |
 
@@ -274,6 +274,50 @@ curl "http://localhost:8080/api/fetch/runs"
 The guard keys on the last *attempt*, not the newest job, precisely so that a
 run which legitimately finds nothing new does not cause a re-fetch on every
 restart.
+
+## Telegram digest (Phase 6)
+
+Sends the shortlist to a Telegram chat — after the scheduled fetch, after the
+startup fetch, or on demand.
+
+| Method | Path | Behaviour |
+|---|---|---|
+| `POST` | `/api/notify?force=false` | Send a digest of matches not sent before |
+| `GET` | `/api/notify/preview` | The exact message it *would* send, without sending — **works with no bot configured** |
+
+### Setup
+
+1. Message [@BotFather](https://t.me/BotFather), `/newbot`, copy the token.
+2. Message your new bot once — a bot cannot open a conversation with you — then
+   open `https://api.telegram.org/bot<TOKEN>/getUpdates` and copy `chat.id`.
+3. Put both in `.env` with `TELEGRAM_ENABLED=true`, then
+   `docker compose up -d --force-recreate app`.
+
+Off until all three are set; the stack runs fine with no bot at all, and
+`POST /api/notify` returns `503 telegram_not_configured` with the vars to set.
+
+### What stops it becoming noise
+
+- **Sent listings are remembered** (`notified_at`, added in `V5`). The shortlist
+  is recomputed from the whole table every time, so without this every morning's
+  digest would be near-identical to the last — and a notification that repeats
+  itself is one you stop opening. Use `?force=true` to re-send deliberately.
+- **A score floor** (`TELEGRAM_MIN_SCORE`, default 60) and **a hard cap**
+  (`TELEGRAM_MAX_JOBS`, default 8). Telegram's own limit is 4096 characters, so
+  the formatter also truncates and says how many it left out.
+- **Marked sent only after the send succeeds.** Marking first would silently
+  drop those jobs from every future digest the moment a send failed.
+- **A failed notification never fails the fetch.** Fetching is the valuable half;
+  notifying is convenience on top.
+
+### A note on the explanations in the digest
+
+The digest reuses the Phase 5b explanation tiers. With the local 3B model the
+prose reads better but is sometimes **wrong about the reasoning** — in testing it
+described the top-ranked job as ranking "lower than expected" and cited a
+dimension that had explicitly dropped out. The templated tier is duller and
+accurate. Since a digest is read at a glance and acted on, accuracy matters more
+here than style, which is why `EXPLANATION_PROVIDER=none` is the default.
 
 ## Testing
 

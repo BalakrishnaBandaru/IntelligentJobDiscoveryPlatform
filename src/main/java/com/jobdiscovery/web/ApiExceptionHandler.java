@@ -1,6 +1,7 @@
 package com.jobdiscovery.web;
 
 import com.jobdiscovery.explain.ExplanationException;
+import com.jobdiscovery.notify.NotificationException;
 import com.jobdiscovery.profile.ProfileNotFoundException;
 import com.jobdiscovery.source.SourceApiException;
 import java.time.Instant;
@@ -42,6 +43,19 @@ public class ApiExceptionHandler {
         // caller can fix), 502 when the upstream model failed us. Either way the
         // ranking itself is unaffected — drop &explain=true and it still works.
         HttpStatus status = ExplanationException.NOT_CONFIGURED.equals(e.getCode())
+                ? HttpStatus.SERVICE_UNAVAILABLE
+                : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", e.getCode(),
+                "message", e.getMessage()));
+    }
+
+    @ExceptionHandler(NotificationException.class)
+    public ResponseEntity<Map<String, Object>> handleNotification(NotificationException e) {
+        // 503 when Telegram simply is not set up, 502 when it rejected us or
+        // could not be reached. Either way the shortlist itself is unaffected.
+        HttpStatus status = NotificationException.NOT_CONFIGURED.equals(e.getCode())
                 ? HttpStatus.SERVICE_UNAVAILABLE
                 : HttpStatus.BAD_GATEWAY;
         return ResponseEntity.status(status).body(Map.of(

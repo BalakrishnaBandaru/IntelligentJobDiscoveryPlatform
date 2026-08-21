@@ -102,6 +102,14 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       EXPLANATION_CLAUDE_MODEL: ${EXPLANATION_CLAUDE_MODEL:-claude-opus-5}
       EXPLANATION_CLAUDE_EFFORT: ${EXPLANATION_CLAUDE_EFFORT:-low}
+      # Phase 6 — Telegram digest. Off unless the flag and both credentials
+      # are set, so the stack still comes up with none of them.
+      TELEGRAM_ENABLED: "${TELEGRAM_ENABLED:-false}"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_MIN_SCORE: ${TELEGRAM_MIN_SCORE:-60}
+      TELEGRAM_MAX_JOBS: ${TELEGRAM_MAX_JOBS:-8}
+      TELEGRAM_SEND_ON_STARTUP: "${TELEGRAM_SEND_ON_STARTUP:-true}"
     ports:
       - "8080:8080"
     depends_on:

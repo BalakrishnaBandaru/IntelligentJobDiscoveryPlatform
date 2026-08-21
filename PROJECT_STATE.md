@@ -4,7 +4,7 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-21 (second session)._
+> _Last updated: 2026-08-21 (third session)._
 
 ---
 
@@ -13,16 +13,11 @@
 **Phase 5a — Deterministic rule engine — DONE and VERIFIED (2026-08-20).**
 Built 2026-08-19 without ever being compiled (Docker Desktop was down that whole
 session); verified 2026-08-20 against a full rebuild — see the table below.
-**Phase 5b — match explanations — DONE and RUNNING LOCALLY (2026-08-21).**
-Three tiers: a local Ollama model, the Anthropic API, and a deterministic
-templated explainer underneath both. **Verified end to end against the local
-model** — real explanations for the real 57 rows. The Claude tier remains
-unexercised (the account has no credit; a Pro subscription does not fund the
-API), but it is no longer on the critical path. Next up: **Phase 6 — Telegram
-notifications** — but see the deployment note under Known issues first.
-
-**Startup fetch added 2026-08-21.** The pipeline had silently not fetched for 25
-days; starting the stack now catches up. See below.
+**Phase 6 — Telegram digest — BUILT (2026-08-21), NOT YET SENT LIVE.**
+`POST /api/notify` and `GET /api/notify/preview` are in place, the message
+format is verified against real data via the preview, and the unconfigured path
+returns 503. **No message has ever reached Telegram** — no bot exists yet. Next
+up: create a bot with @BotFather, or move to **Phase 7 / Phase 8**.
 
 ---
 
@@ -51,8 +46,10 @@ days; starting the stack now catches up. See below.
 - [x] **Phase 5b — match explanations** — **DONE (verified 2026-08-21).**
       `GET /api/matches?explain=true`, three tiers (ollama / claude / templated).
       Verified against the local model. See below.
-- [ ] Phase 6 — Telegram notifications *(next)*
-- [ ] Phase 7 — Application tracking
+- [x] **Phase 6 — Telegram notifications** — **BUILT 2026-08-21, no live send yet.**
+      `POST /api/notify`, `GET /api/notify/preview`, `V5` adds `notified_at`.
+      See below.
+- [ ] Phase 7 — Application tracking *(next, or skip to 8)*
 - [ ] Phase 8 — Demo polish (Docker/Adminer already done; Swagger, README, screenshots)
 
 ### Phase 4 verification (2026-07-27)
@@ -326,6 +323,60 @@ listings whose city is confirmed. That is honest rather than wrong, but it means
 the dimension would only start earning its 20 weight if the search widened
 (remote roles, other cities). Worth revisiting then, not now.
 
+### Phase 6 — Telegram digest (2026-08-21)
+
+New package `com.jobdiscovery.notify`, `V5__add_notified_at.sql`, and two
+endpoints. Sends after the scheduled fetch, after the startup fetch, and on
+demand.
+
+**The design problem was not sending — it was not becoming noise.** The
+shortlist is recomputed from the whole table every run, so a naive digest is
+near-identical every morning, and a notification that repeats itself is one you
+stop opening. `V5` adds `notified_at` to `job_listing` so a listing is only ever
+announced once. `?force=true` re-sends deliberately.
+
+Design points worth remembering:
+
+- **Marked notified only *after* the send succeeds.** Marking first is simpler
+  and would silently drop those jobs from every future digest the moment a send
+  failed.
+- **`DigestNotifier` swallows every failure.** Fetching is the valuable half of
+  the pipeline; notifying is convenience on top, so a Telegram outage must not
+  turn a successful fetch into a failed one. Keeping that in one wrapper rather
+  than a try/catch per call site means the next call site cannot forget it.
+- **HTML escaping is the real failure mode.** Telegram rejects a message whose
+  entities do not parse, and job data is full of `&` and `<` — Adzuna and Jooble
+  apply URLs are query strings stuffed with ampersands. Verified against real
+  data through the preview: every `&` in a Jooble URL comes out `&amp;`.
+- **4096 characters is a hard API limit**, not a style preference — over it, the
+  send fails outright. The formatter truncates to a margin below and says how
+  many it omitted. The real digest currently runs ~3.3K.
+- **`GET /api/notify/preview` needs no bot token.** It renders exactly what would
+  be sent without sending or marking anything. That is what made the formatting
+  checkable before any credentials existed — and it is how the escaping above was
+  confirmed.
+- **Also sends after the startup fetch** (`telegram.send-on-startup`, default
+  true), for the same reason the startup fetch exists: the cron assumes an
+  always-on host, and a digest from a container that is not running delivers
+  nothing.
+
+**Explanation quality in the digest — a real caveat.** The digest reuses the
+Phase 5b tiers. With llama3.2:3b the prose reads better but is sometimes wrong
+about the reasoning: in testing it called the **top-ranked** job "lower than
+expected" and cited `preferredCompany`, a dimension that had explicitly dropped
+out and which the prompt tells it to ignore. The templated tier is duller and
+accurate. A digest is read at a glance and acted on, so accuracy matters more
+than style here — `EXPLANATION_PROVIDER=none` stays the default.
+
+**Tests: 91 passing** (9 new in `DigestFormatterTest` covering escaping, the
+length cap and missing fields; 3 new in `StartupFetchJobTest` covering when a
+digest does and does not follow a fetch).
+
+**Verified without a bot:** `V5` applied, all 86 rows `notified_at IS NULL`,
+`POST /api/notify` returns 503 with the exact vars to set, and the preview
+renders 8 matches at ~3.3K characters with correct escaping. **Not verified:**
+the actual Telegram send — no bot token exists.
+
 ---
 
 ## 🧭 Key decisions
@@ -541,14 +592,17 @@ real output.
 
 **Next, in value order:**
 
-1. **Decide where this runs before building Phase 6.** A daily Telegram digest
-   from a container that is not running delivers nothing; the startup fetch
-   papers over the cron for local use but does not make the pipeline
-   always-on. Options: a small always-on host, or GitHub Actions on a cron
-   against a hosted instance. This question is Phase 6's real prerequisite.
-2. **Phase 6 — Telegram notifications**, once (1) is answered.
+1. **Create a Telegram bot and send the first real digest.** Phase 6 is built
+   and previewable but has never sent. @BotFather → token → message the bot →
+   `getUpdates` → chat id → `.env` → recreate. Then `POST /api/notify?force=true`.
+2. **Decide where this runs.** Still unresolved, and now the limiting factor.
+   A daily digest from a container that is not running delivers nothing; the
+   startup fetch papers over the cron for local use but does not make the
+   pipeline always-on. Options: a small always-on host, or GitHub Actions on a
+   cron against a hosted instance.
 3. **Phase 8 polish** before applying anywhere — the README and screenshots are
-   what an employer actually sees.
+   what an employer actually sees. Phase 7 (application tracking) is CRUD and a
+   spreadsheet does it today; consider skipping straight to 8.
 
 Weight tuning is **done** (2026-08-21) and needs no revisiting unless the search
 widens beyond Bangalore — see the tuning section above for why.

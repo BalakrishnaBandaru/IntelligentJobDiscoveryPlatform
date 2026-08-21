@@ -181,3 +181,23 @@ explanation:
     # Thinking tokens count towards this as well as the visible answer.
     max-tokens: ${EXPLANATION_CLAUDE_MAX_TOKENS:2048}
     effort: ${EXPLANATION_CLAUDE_EFFORT:low}
+
+# --- Phase 6: Telegram digest -----------------------------------------------
+# Sends the shortlist to a Telegram chat. Off by default; the stack runs fine
+# with no bot at all. Create one with @BotFather, then set the token and chat id
+# in .env. A notification failure never affects the fetch that triggered it.
+telegram:
+  enabled: ${TELEGRAM_ENABLED:false}
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
+  chat-id: ${TELEGRAM_CHAT_ID:}
+  base-url: ${TELEGRAM_BASE_URL:https://api.telegram.org}
+  # Below this, a match is not worth interrupting you for. A digest that
+  # includes weak matches is one you learn to ignore.
+  min-score: ${TELEGRAM_MIN_SCORE:60}
+  # Hard cap per message. Telegram's limit is 4096 characters, and a digest
+  # nobody finishes is a digest nobody reads.
+  max-jobs: ${TELEGRAM_MAX_JOBS:8}
+  # Also send after the startup fetch, not only on the cron. The cron assumes an
+  # always-on host; a laptop running Docker Desktop is not one, so without this
+  # a digest would rarely arrive at all. Set false for cron-only.
+  send-on-startup: ${TELEGRAM_SEND_ON_STARTUP:true}

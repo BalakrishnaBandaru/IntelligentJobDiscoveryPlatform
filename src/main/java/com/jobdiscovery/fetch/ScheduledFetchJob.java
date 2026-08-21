@@ -1,5 +1,6 @@
 package com.jobdiscovery.fetch;
 
+import com.jobdiscovery.notify.DigestNotifier;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,10 +23,13 @@ public class ScheduledFetchJob {
 
     private final JobFetchService fetchService;
     private final FetchScheduleProperties properties;
+    private final DigestNotifier notifier;
 
-    public ScheduledFetchJob(JobFetchService fetchService, FetchScheduleProperties properties) {
+    public ScheduledFetchJob(JobFetchService fetchService, FetchScheduleProperties properties,
+                             DigestNotifier notifier) {
         this.fetchService = fetchService;
         this.properties = properties;
+        this.notifier = notifier;
     }
 
     @PostConstruct
@@ -52,5 +56,9 @@ public class ScheduledFetchJob {
                         s.source(), s.fetched(), s.saved(), s.duplicates());
             }
         });
+
+        // Fetching and then not telling anyone is the shape of the problem this
+        // phase exists to fix.
+        notifier.sendQuietly("scheduled fetch");
     }
 }

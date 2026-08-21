@@ -1,5 +1,6 @@
 package com.jobdiscovery.fetch;
 
+import com.jobdiscovery.notify.DigestNotifier;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -44,13 +45,16 @@ public class StartupFetchJob {
     private final JobFetchService fetchService;
     private final FetchStartupProperties startupProperties;
     private final FetchScheduleProperties scheduleProperties;
+    private final DigestNotifier notifier;
 
     public StartupFetchJob(JobFetchService fetchService,
                            FetchStartupProperties startupProperties,
-                           FetchScheduleProperties scheduleProperties) {
+                           FetchScheduleProperties scheduleProperties,
+                           DigestNotifier notifier) {
         this.fetchService = fetchService;
         this.startupProperties = startupProperties;
         this.scheduleProperties = scheduleProperties;
+        this.notifier = notifier;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -68,6 +72,9 @@ public class StartupFetchJob {
         if (sinceLastRun.isPresent() && sinceLastRun.get().compareTo(maxAge) < 0) {
             log.info("Startup fetch skipped: last run was {}h ago, under the {}h threshold",
                     sinceLastRun.get().toHours(), maxAge.toHours());
+            // Still worth a digest: the fetch was skipped because it ran
+            // recently, not because there is nothing new to report.
+            notifier.sendOnStartup("startup (fetch skipped)");
             return;
         }
 
@@ -92,6 +99,7 @@ public class StartupFetchJob {
                             s.source(), s.fetched(), s.saved(), s.duplicates());
                 }
             });
+            notifier.sendOnStartup("startup fetch");
         } catch (Exception e) {
             // The app is already serving. A failed fetch must not take it down —
             // the stored listings are still rankable.
