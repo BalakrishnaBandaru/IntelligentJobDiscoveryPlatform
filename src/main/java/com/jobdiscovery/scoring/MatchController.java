@@ -1,5 +1,6 @@
 package com.jobdiscovery.scoring;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.jobdiscovery.application.ApplicationService;
 import com.jobdiscovery.application.ApplicationStatus;
 import com.jobdiscovery.explain.MatchExplainer;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/matches")
+@Tag(name = "Matches")
 public class MatchController {
 
     private final JobScoringService scoringService;

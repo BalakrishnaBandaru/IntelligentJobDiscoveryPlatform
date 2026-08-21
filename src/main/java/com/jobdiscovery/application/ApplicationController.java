@@ -1,5 +1,6 @@
 package com.jobdiscovery.application;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /** The application tracker (Phase 7). */
 @RestController
 @RequestMapping("/api/applications")
+@Tag(name = "Applications")
 public class ApplicationController {
 
     private final ApplicationService service;

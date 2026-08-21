@@ -12,8 +12,9 @@ rule engine, uses an LLM to explain each shortlisted match, and delivers
 filtered recommendations via Telegram — with personal application tracking
 built in.
 
-> **Status:** built incrementally, phase by phase. This README grows with the
-> project and is finalised in Phase 8.
+> **Status:** all eight phases complete. Runs entirely in Docker; the only
+> things it will not do without credentials are send a Telegram message and call
+> a paid LLM, and both degrade rather than fail.
 
 ---
 
@@ -37,19 +38,21 @@ the only thing a human looks at is a short, ranked, explained shortlist.
 | 5b | LLM match explanations | ✅ Done |
 | 6 | Telegram notifications | ✅ Done |
 | 7 | Application tracking | ✅ Done |
-| 8 | Demo polish (Swagger, README, screenshots) | ⏳ Next |
+| 8 | Demo polish (Swagger, README, screenshots) | ✅ Done |
 
 ## Tech stack
 
 - **Java 21** (LTS)
 - **Spring Boot 4.1.x** — Web MVC, Data JPA, Validation, Actuator
 - **PostgreSQL 18**
-- **Flyway** for DB migrations (introduced in Phase 2)
+- **Flyway** for DB migrations — six versioned migrations, `ddl-auto: none`
+- **springdoc-openapi** for the Swagger UI, generated from the controllers
+- **Ollama** (optional) for local, free match explanations
 - **Gradle** (wrapper-pinned)
 - **Docker + Docker Compose** — Postgres, Adminer, and the app all run in
   containers; no JDK or Postgres install is required on the host to run it
 
-## Architecture (target)
+## Architecture
 
 ```
                  +-------------+   +-------------+   +-------------+
@@ -68,36 +71,136 @@ the only thing a human looks at is a short, ranked, explained shortlist.
                                            v
                      +--------------------------------------+
                      |  Rule engine (deterministic score)    |
-                     |  -> top-N shortlist -> LLM explanation |
+                     |  six weighted dimensions -> 0-100     |
                      +---------------------+-----------------+
                                            v
                      +--------------------------------------+
-                     |   Filter  ->  Telegram daily digest   |
+                     |  Explain the score (never change it)  |
+                     |  local LLM -> template -> error       |
+                     +---------------------+-----------------+
+                                           v
+                     +--------------------------------------+
+                     |   Telegram digest  ->  you apply      |
+                     +---------------------+-----------------+
+                                           v
+                     +--------------------------------------+
+                     |  Application tracker                  |
+                     |  feeds back: applied jobs drop out    |
                      +--------------------------------------+
 ```
 
-## Running it (Phase 0)
+The feedback edge at the bottom is the part worth noticing: once a job is
+tracked, the digest stops raising it and the shortlist marks it, so the list
+stays things you have not yet decided about.
 
-**Prerequisites:** Docker Desktop. No local JDK or Postgres needed to *run* —
-everything builds and runs in containers. (A local JDK 21 is only needed if you
-want IDE code-completion; the container handles the actual build.)
+## Quick start
+
+**Prerequisites:** Docker Desktop. Nothing else — no JDK, no Postgres, no Gradle
+on the host. (A local JDK 21 only helps IDE completion; the build happens in a
+container.)
 
 ```bash
-# 1. Create your local env file from the template and edit the values
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
-
-# 2. Build and start Postgres + Adminer + the app
-docker compose up --build
+# Add your free Adzuna keys (https://developer.adzuna.com/) to .env
+docker compose up --build -d
 ```
 
-Then verify:
+That is the whole setup. On startup the app fetches if its data is stale, so you
+have ranked results within a minute or two:
 
-- App health → http://localhost:8080/actuator/health → `{"status":"UP"}`
-  (an `UP` status means the app also reached Postgres)
-- Adminer (DB browser) → http://localhost:8081
-  (System: PostgreSQL, Server: `db`, plus the user/password/db from your `.env`)
+```bash
+curl "http://localhost:8080/api/matches?limit=5"          # ranked shortlist
+curl "http://localhost:8080/api/matches?limit=5&explain=true"   # with reasons
+```
 
-Stop everything with `docker compose down` (add `-v` to also wipe the DB volume).
+| What | Where |
+|---|---|
+| **API docs (Swagger UI)** | http://localhost:8080/swagger-ui/index.html |
+| OpenAPI spec | http://localhost:8080/v3/api-docs |
+| Health | http://localhost:8080/actuator/health |
+| Database browser (Adminer) | http://localhost:8081 — server `db`, credentials from `.env` |
+
+`docker compose down` stops it; add `-v` to wipe the database volume too.
+
+### What works without any API keys
+
+Everything except fetching. The scoring engine, the templated explanations, the
+digest preview and the tracker all run against whatever is in the database. Only
+Adzuna and Jooble need credentials, and only to bring new listings in.
+
+### Optional extras
+
+```bash
+docker compose --profile llm up -d ollama                     # free local LLM
+docker exec jobdiscovery-ollama ollama pull llama3.2:3b
+docker compose --profile test run --rm test                   # the test suite
+```
+
+## API documentation
+
+Swagger UI is served at **http://localhost:8080/swagger-ui/index.html**, grouped
+in pipeline order — Fetch, Jobs, Profile, Matches, Notifications, Applications.
+
+The spec is generated from the controllers by
+[springdoc](https://springdoc.org/), so it cannot drift out of step with the code
+the way a hand-written one does. Only the title, description and tag ordering are
+declared, in [`OpenApiConfig`](src/main/java/com/jobdiscovery/web/OpenApiConfig.java).
+
+## A worked example
+
+Real output from a running instance, 86 stored listings.
+
+**A fetch happened, and it is on the record** — the run log exists precisely so
+"nothing new" and "nothing ran" cannot look the same:
+
+```
+GET /api/fetch/runs
+2026-08-21T03:46  STARTUP   fetched=40  saved=29  dup=11
+```
+
+**The top match, and why** — every score comes with the arithmetic behind it:
+
+```
+GET /api/matches?limit=1
+
+80.7  Senior Computer Scientist
+Adobe | Bangalore, Karnataka | ADZUNA
+  skills            0.67  matched 4 of 8 skills: Java, Spring Boot, Microservices, AWS
+  seniority         1.00  title reads SENIOR, matches the SENIOR level implied by 10 years
+  location          1.00  'Bangalore, Karnataka' matches preferred 'Bangalore'
+  keywords          0.33  matched 1 of 3 keywords: senior
+  preferredCompany  n/a   profile states no preferred companies
+  recency           1.00  posted 0 day(s) ago
+```
+
+`preferredCompany` reading `n/a` is the design working: the profile names no
+preferred employers, so rather than scoring zero and capping every job at 95,
+the dimension drops out of the divisor entirely.
+
+**The digest that would go out**, without needing a bot token:
+
+```
+GET /api/notify/preview
+
+<b>8 new matches</b>
+
+<b>80.7</b> · <a href="...">Senior Computer Scientist</a>
+Adobe · Bangalore, Karnataka
+<i>A strong match at 80.7 out of 100, mainly because the seniority fits. It names
+Java, Spring Boot, Microservices, AWS from your profile, and does not mention
+PostgreSQL, MySQL, Kafka and 1 other — though the posting text is cut short, so
+those may still be wanted.</i>
+```
+
+**Track it, and it leaves the queue:**
+
+```
+POST /api/applications  {"jobId": 172}
+→ 200  status APPLIED
+
+GET /api/notify/preview
+→ top entry is now 76.7 — the tracked job is gone
+```
 
 ## Environment variables
 
@@ -394,13 +497,27 @@ restores it afterwards.
 
 ## Limitations (read this)
 
-- Aggregator APIs **do not cover every company or portal**. Postings that are
-  LinkedIn-exclusive, or that live only on a company's own careers page, will
-  not appear here.
-- This is a **discovery / triage tool, not a complete replacement** for a job
-  search. It surfaces and ranks candidates for a human to act on.
+- **Aggregator APIs do not cover every company or portal.** Postings that are
+  LinkedIn-exclusive, or live only on a company's own careers page, never appear
+  here.
+- **Every stored posting is a preview, not the posting.** Adzuna caps its
+  description at 500 characters and Jooble returns a `snippet`. The scoring
+  engine compensates — an unmentioned skill is treated as unknown rather than
+  absent — but it is working from partial text, and no amount of ranking fixes
+  that.
+- **The daily cron assumes a host that stays up.** On a laptop it rarely fires,
+  which is why there is a catch-up fetch on startup. Genuine daily automation
+  needs somewhere always-on; that is not solved here.
+- **The local 3B model writes clunky prose and occasionally misreads its own
+  evidence.** The templated explainer is duller and accurate, and is the default
+  for that reason.
+- **Single user, no auth.** The API is unauthenticated and assumes one profile.
+  It is bound to localhost for that reason.
+- This is a **discovery and triage tool, not a replacement for a job search.**
+  It surfaces and ranks candidates for a human to act on.
 
 ## Roadmap (intentionally not built)
+
 
 Web dashboard · semantic search / embeddings · company intelligence (funding,
 size, ratings) · resume tailoring & cover-letter generation · Redis caching ·
@@ -409,4 +526,15 @@ Actions) · multi-user support.
 
 ## Screenshots
 
-_Placeholder — real screenshots will be added in Phase 8._
+Four worth capturing, all from a running stack:
+
+| # | URL | What to show |
+|---|---|---|
+| 1 | `localhost:8080/swagger-ui/index.html` | The six tag groups, one expanded |
+| 2 | `localhost:8080/api/matches?limit=3&explain=true` | A ranked result with its breakdown and explanation |
+| 3 | `localhost:8081` (Adminer) | `job_listing` with real rows — server `db` |
+| 4 | Telegram | A delivered digest, once a bot is set up |
+
+Save them under `docs/` and link them here. They are not committed yet: the
+project has only ever run locally, and a screenshot of someone else's data would
+be worse than none.

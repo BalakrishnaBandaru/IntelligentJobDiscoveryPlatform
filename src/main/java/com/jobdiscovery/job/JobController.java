@@ -1,5 +1,6 @@
 package com.jobdiscovery.job;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/jobs")
+@Tag(name = "Jobs")
 public class JobController {
 
     private final JobListingRepository repository;

@@ -4,7 +4,7 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-21 (fourth session)._
+> _Last updated: 2026-08-21 (fifth session)._
 
 ---
 
@@ -13,12 +13,16 @@
 **Phase 5a — Deterministic rule engine — DONE and VERIFIED (2026-08-20).**
 Built 2026-08-19 without ever being compiled (Docker Desktop was down that whole
 session); verified 2026-08-20 against a full rebuild — see the table below.
-**Phase 7 — Application tracking — DONE and VERIFIED (2026-08-21).** Exercised
-end to end against the real database. **Only Phase 8 (demo polish) remains.**
+**ALL EIGHT PHASES COMPLETE (2026-08-21).** Phase 8 added Swagger UI, a rewritten
+README and a worked example. The build plan is finished.
 
 Two things are built but never exercised live, both waiting on credentials
 rather than code: the **Telegram send** (no bot created) and the **Claude
-explanation tier** (no API credit). Neither blocks anything.
+explanation tier** (no API credit). Neither blocks anything — Ollama covers
+explanations for free, and the digest is previewable without a bot.
+
+**Screenshots are the one Phase 8 item not done**, and cannot be: they need a
+browser and the user's own data. The README lists the four worth taking.
 
 ---
 
@@ -53,7 +57,8 @@ explanation tier** (no API credit). Neither blocks anything.
 - [x] **Phase 7 — Application tracking** — **DONE (verified 2026-08-21).**
       `/api/applications` + funnel; `V6`. Feeds back into matches and the
       digest. See below.
-- [ ] **Phase 8 — Demo polish** *(next, and the last one)* — Swagger, README, screenshots
+- [x] **Phase 8 — Demo polish** — **DONE (2026-08-21).** Swagger UI, README
+      rewrite, worked example. Screenshots left to the user. See below.
 
 ### Phase 4 verification (2026-07-27)
 
@@ -431,6 +436,43 @@ the tracker is empty and the digest is back to 80.7.
 **Tests: 99 passing** (8 new in `JobApplicationTest`, covering the `appliedAt`
 stamping rules and the funnel ordering).
 
+### Phase 8 — Demo polish (2026-08-21)
+
+**Swagger UI at `/swagger-ui/index.html`**, spec at `/v3/api-docs`. All 13 paths
+and 14 schemas are generated from the controllers, so the document cannot drift
+from the code; only the title, description and tag order are declared, in
+`OpenApiConfig`. Tags are ordered as the pipeline runs — Fetch, Jobs, Profile,
+Matches, Notifications, Applications — rather than alphabetically, so the page
+reads the way the system works.
+
+**springdoc 2.8.6 works on Spring Boot 4.1.0, which was not a given.** Its latest
+release targets Boot 3.x and there is no 3.x line on Maven Central, so this was
+tested rather than assumed: both endpoints return 200 and the spec is complete.
+Worth re-checking on any Boot upgrade.
+
+**Gotcha for future sessions:** adding a dependency invalidates the mounted-src
+test shortcut. `docker compose --profile test run -v .../src:/workspace/src`
+reuses the existing image, which will not have the new jar — `compileJava` then
+fails with "package does not exist". Rebuild with
+`docker compose --profile test build test` first.
+
+**README rewritten** rather than extended. It had grown by accretion, one phase
+at a time, and still opened with a Phase 0 setup section. Now: a real quick start
+that gets to ranked results in three commands, an API documentation section, a
+**worked example with real captured output** (a fetch run, the top match's full
+breakdown, the digest preview, and a tracked job leaving the queue), an
+architecture diagram that includes the tracker feedback edge, and honest
+limitations — truncated previews, the cron's deployment assumption, the 3B
+model's prose, single-user with no auth.
+
+One correction found while writing it: the README claimed `POST /api/applications`
+returns 201. It returns 200. Checked rather than assumed, and fixed.
+
+**Screenshots not done, and not doable here** — they need a browser and real
+data. The README names the four worth taking (Swagger UI, a ranked match, Adminer
+showing `job_listing`, a delivered Telegram digest) and says to put them in
+`docs/`. Deliberately not faked.
+
 ---
 
 ## 🧭 Key decisions
@@ -646,8 +688,8 @@ real output.
 
 **Next, in value order:**
 
-1. **Phase 8 — demo polish.** The last phase, and the one an employer actually
-   sees: Swagger/OpenAPI, README screenshots, a tidy first-run path.
+1. **Take the four screenshots** the README lists, put them in `docs/`, and link
+   them. Two minutes, and it is the last thing standing between this and done.
 2. **Create a Telegram bot and send the first real digest.** Built and
    previewable, never sent. @BotFather → token → message the bot →
    `getUpdates` → chat id → `.env` → recreate, then `POST /api/notify?force=true`.

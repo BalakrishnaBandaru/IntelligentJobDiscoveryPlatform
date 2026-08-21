@@ -1,5 +1,6 @@
 package com.jobdiscovery.fetch;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
  * to {@link JobFetchService} — the same pipeline the scheduled job uses.
  */
 @RestController
+@Tag(name = "Fetch")
 public class FetchController {
 
     private final JobFetchService fetchService;

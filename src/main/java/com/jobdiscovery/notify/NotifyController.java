@@ -1,5 +1,6 @@
 package com.jobdiscovery.notify;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
  * than a parallel implementation.
  */
 @RestController
+@Tag(name = "Notifications")
 public class NotifyController {
 
     private final DigestService digestService;

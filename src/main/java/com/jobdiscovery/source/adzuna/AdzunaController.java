@@ -1,5 +1,6 @@
 package com.jobdiscovery.source.adzuna;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.jobdiscovery.job.IngestionResult;
 import com.jobdiscovery.job.JobIngestionService;
 import org.springframework.http.MediaType;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/adzuna")
+@Tag(name = "Fetch")
 public class AdzunaController {
 
     private final AdzunaSource adzunaSource;
