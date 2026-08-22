@@ -4,7 +4,7 @@
 > re-explaining the project. **Claude reads this first at the start of every
 > session** and **updates it at the end of every phase or significant change.**
 >
-> _Last updated: 2026-08-21 (fifth session)._
+> _Last updated: 2026-08-22 (sixth session)._
 
 ---
 
@@ -16,10 +16,10 @@ session); verified 2026-08-20 against a full rebuild — see the table below.
 **ALL EIGHT PHASES COMPLETE (2026-08-21).** Phase 8 added Swagger UI, a rewritten
 README and a worked example. The build plan is finished.
 
-Two things are built but never exercised live, both waiting on credentials
-rather than code: the **Telegram send** (no bot created) and the **Claude
-explanation tier** (no API credit). Neither blocks anything — Ollama covers
-explanations for free, and the digest is previewable without a bot.
+**The Telegram send went live on 2026-08-22** — bot created, first digest
+delivered. One thing is still built but never exercised: the **Claude
+explanation tier**, waiting on API credit rather than code. It blocks nothing —
+Ollama covers explanations for free.
 
 **Screenshots are the one Phase 8 item not done**, and cannot be: they need a
 browser and the user's own data. The README lists the four worth taking.
@@ -51,7 +51,7 @@ browser and the user's own data. The README lists the four worth taking.
 - [x] **Phase 5b — match explanations** — **DONE (verified 2026-08-21).**
       `GET /api/matches?explain=true`, three tiers (ollama / claude / templated).
       Verified against the local model. See below.
-- [x] **Phase 6 — Telegram notifications** — **BUILT 2026-08-21, no live send yet.**
+- [x] **Phase 6 — Telegram notifications** — **DONE (live send verified 2026-08-22).**
       `POST /api/notify`, `GET /api/notify/preview`, `V5` adds `notified_at`.
       See below.
 - [x] **Phase 7 — Application tracking** — **DONE (verified 2026-08-21).**
@@ -380,10 +380,33 @@ than style here — `EXPLANATION_PROVIDER=none` stays the default.
 length cap and missing fields; 3 new in `StartupFetchJobTest` covering when a
 digest does and does not follow a fetch).
 
-**Verified without a bot:** `V5` applied, all 86 rows `notified_at IS NULL`,
-`POST /api/notify` returns 503 with the exact vars to set, and the preview
-renders 8 matches at ~3.3K characters with correct escaping. **Not verified:**
-the actual Telegram send — no bot token exists.
+**Verified without a bot (2026-08-21):** `V5` applied, all 86 rows
+`notified_at IS NULL`, `POST /api/notify` returns 503 with the exact vars to
+set, and the preview renders 8 matches at ~3.3K characters with correct
+escaping.
+
+**Live send verified (2026-08-22).** Bot created via @BotFather; token and chat
+id are in `.env` (status only recorded here, never values). The digest was
+delivered on the first attempt after the container was recreated — and it
+arrived from the **startup fetch**, not from a manual `POST /api/notify`, which
+is `telegram.send-on-startup` behaving exactly as designed.
+
+Two things cost time getting there, both worth knowing next time:
+
+- **Editing `.env` does not reach a running container.** Compose reads `.env`
+  at container-create time, so `POST /api/notify` kept returning
+  `telegram_not_configured` from an app process that had started before the
+  token existed. The error was correct; the process genuinely could not see the
+  config. `docker compose up -d --force-recreate app` is mandatory after any
+  `.env` change, not a tidy-up step.
+- **Find the bot by deep link, not by Telegram search.** BotFather's display
+  name was typo'd (`my_job_se*e*rch_...`) while the username was correct, and
+  bot search is full of near-identical job-bot names — so the first "I messaged
+  it" went to somebody else's bot and looked like success from the phone.
+  `getUpdates` stayed empty; `getWebhookInfo` returning `url: ""` and
+  `pending_update_count: 0` is what proved no message had ever reached this bot
+  rather than something consuming the updates. `https://t.me/<username>`
+  resolves exactly and cannot mis-target.
 
 ### Phase 7 — Application tracking (2026-08-21)
 
@@ -690,15 +713,16 @@ real output.
 
 1. **Take the four screenshots** the README lists, put them in `docs/`, and link
    them. Two minutes, and it is the last thing standing between this and done.
-2. **Create a Telegram bot and send the first real digest.** Built and
-   previewable, never sent. @BotFather → token → message the bot →
-   `getUpdates` → chat id → `.env` → recreate, then `POST /api/notify?force=true`.
-3. **Decide where this runs.** Still unresolved.
-   A daily digest from a container that is not running delivers nothing; the
-   startup fetch papers over the cron for local use but does not make the
-   pipeline always-on. Options: a small always-on host, or GitHub Actions on a
-   cron against a hosted instance.
-Phase 7 is done, so the phase list is complete bar Phase 8.
+   All four are now takeable — the delivered Telegram digest was the one that
+   needed a working bot.
+2. **Decide where this runs.** Still unresolved, and now the sharpest open
+   question, because the digest is no longer hypothetical: it works, and it
+   only works while the laptop is on. A daily digest from a container that is
+   not running delivers nothing; the startup fetch papers over the cron for
+   local use but does not make the pipeline always-on. Options: a small
+   always-on host, or GitHub Actions on a cron against a hosted instance.
+
+All eight phases are complete.
 
 Weight tuning is **done** (2026-08-21) and needs no revisiting unless the search
 widens beyond Bangalore — see the tuning section above for why.
@@ -740,7 +764,7 @@ Useful endpoints: `POST /api/fetch?keywords=&location=` (all sources),
 | **Arbeitnow** | ⏸️ disabled | Integrated but off (`arbeitnow.enabled=false`); no useful filtering for this search |
 | **Ollama** (Phase 5b) | ✅ working | Local, free, no key. `docker compose --profile llm up -d ollama` + `ollama pull llama3.2:3b`. Currently `EXPLANATION_PROVIDER=ollama` |
 | **Anthropic** (Phase 5b) | ⚠️ key valid, **no credit** | Key in `.env`; auth confirmed via `/v1/models`. Calls fail with "credit balance is too low". **A Claude Pro subscription does not fund the API** — they are separately billed products. Not on the critical path now that Ollama works |
-| **Telegram bot** (Phase 6) | ❌ not created | Create via BotFather at Phase 6 |
+| **Telegram bot** (Phase 6) | ✅ working | Created 2026-08-22; token + chat id in `.env`. First digest delivered. Recreate the app container after any `.env` change |
 
 ---
 _Secrets live only in `.env` (git-ignored). This file records **status only**,
